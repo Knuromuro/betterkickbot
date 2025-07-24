@@ -1,6 +1,7 @@
 const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
 const spinner = document.getElementById('spinner');
-const redisBanner = document.getElementById('redisBanner');
+const redisStatus = document.getElementById('redisStatus');
+const workerStatus = document.getElementById('workerStatus');
 const toastBox = document.getElementById('toast');
 let chart;
 let logTimer = null;
@@ -23,12 +24,12 @@ function showToast(msg, ok = true) {
   setTimeout(() => toastBox.classList.add('hidden'), 3000);
 }
 
-async function checkRedis() {
+async function loadStatus() {
   const res = await fetch('/dashboard/api/status').catch(() => null);
   if (!res || !res.ok) return;
   const data = await res.json();
-  if (data.redis_online) redisBanner.classList.add('hidden');
-  else redisBanner.classList.remove('hidden');
+  if (redisStatus) redisStatus.textContent = data.redis ? 'Redis online' : 'Redis offline';
+  if (workerStatus) workerStatus.textContent = data.workers ? 'Workers online' : 'Workers offline';
 }
 
 function getAccess() {
@@ -340,9 +341,9 @@ const socket = io();
 ['bot_started','bot_stopped','bot_error','status'].forEach(evt => {
   socket.on(evt, () => { loadBots(); refreshStats(); });
 });
-socket.on('redis_status', () => checkRedis());
+socket.on('redis_status', () => loadStatus());
 socket.on('sync_event', syncPull);
-socket.on('connect', () => { syncPull(); syncPush(); checkRedis(); });
+socket.on('connect', () => { syncPull(); syncPush(); loadStatus(); });
 
 window.addEventListener('load', () => {
   loadGroups();
@@ -351,7 +352,7 @@ window.addEventListener('load', () => {
   refreshStats();
   syncPull();
   syncPush();
-  checkRedis();
-  setInterval(checkRedis, 10000);
+  loadStatus();
+  setInterval(loadStatus, 5000);
   if (!navigator.onLine) document.getElementById('offlineBanner').classList.remove('hidden');
 });
