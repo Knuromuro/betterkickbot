@@ -2,7 +2,7 @@ import pytest
 import bcrypt
 
 from backend import create_app
-from backend.models import db
+from backend.models import db, Group, Account
 
 
 @pytest.fixture
@@ -109,3 +109,37 @@ def test_bot_start_stop(client, tmp_path):
 
     res = client.post(f"/dashboard/api/bots/{aid}/stop")
     assert res.status_code == 200
+
+
+def test_delete_endpoints(client):
+    gid = client.post(
+        "/dashboard/api/groups", json={"name": "del", "target": "t"}
+    ).get_json()["id"]
+    aid = client.post(
+        "/dashboard/api/accounts",
+        json={"username": "todel", "password": "p", "group_id": gid},
+    ).get_json()["id"]
+    res = client.delete(f"/dashboard/api/bots/{aid}")
+    assert res.status_code == 200
+    assert res.get_json()["message"] == "Bot deleted"
+    assert Account.query.get(aid) is None
+    res = client.delete(f"/dashboard/api/groups/{gid}")
+    assert res.status_code == 200
+    assert res.get_json()["message"] == "Group deleted"
+    assert Group.query.get(gid) is None
+
+
+def test_scheduler_start(client, monkeypatch):
+    from backend import scheduler as backend_sched
+
+    started = []
+
+    def fake_start():
+        started.append(True)
+
+    monkeypatch.setattr(backend_sched.sched, "start", fake_start)
+
+    res = client.post("/dashboard/api/scheduler/start")
+    assert res.status_code == 200
+    assert res.get_json()["message"] == "Scheduler started"
+    assert started

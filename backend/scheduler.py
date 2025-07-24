@@ -51,6 +51,11 @@ bots: Dict[int, BotInstance] = {}
 processes: Dict[int, subprocess.Popen] = {}
 
 
+def queue_send_job(account_id: int, socketio: SocketIO) -> None:
+    """Wrapper to schedule async send_job from APScheduler."""
+    asyncio.run_coroutine_threadsafe(send_job(account_id, socketio), aio_loop)
+
+
 def init_redis() -> None:
     global redis_conn, queue, redis_online
     redis_conn = redis.from_url(cfg.REDIS_URL or "redis://localhost:6379/0")
@@ -132,13 +137,12 @@ def schedule_all(socketio: SocketIO) -> None:
             continue
         try:
             sched.add_job(
-                lambda aid=acc.id: asyncio.run_coroutine_threadsafe(
-                    send_job(aid, socketio), aio_loop
-                ),
+                queue_send_job,
                 "interval",
                 seconds=group.interval,
                 id=str(acc.id),
                 replace_existing=True,
+                args=[acc.id, socketio],
             )
         except Exception as exc:  # noqa: broad-except
             logger.error("could not schedule job %s: %s", acc.id, exc)
@@ -196,3 +200,8 @@ def process_unsent_events(socketio: SocketIO) -> None:
             )
             evt.synced = True
         db.session.commit()
+
+
+def enqueue_sync_job(socketio: SocketIO) -> None:
+    """Entry point for RQ to emit unsent events."""
+    process_unsent_events(socketio)

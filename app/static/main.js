@@ -23,6 +23,13 @@ function showToast(msg, ok = true) {
   setTimeout(() => toastBox.classList.add('hidden'), 3000);
 }
 
+document.addEventListener('DOMContentLoaded', () => {
+  const flashes = document.getElementById('flash-messages');
+  if (flashes) setTimeout(() => flashes.remove(), 3000);
+  const startBtn = document.getElementById('startSchedulerBtn');
+  if (startBtn) startBtn.addEventListener('click', startScheduler);
+});
+
 async function checkRedis() {
   const res = await fetch('/dashboard/api/status').catch(() => null);
   if (!res || !res.ok) return;
@@ -103,7 +110,7 @@ async function loadGroups() {
   const url = q.length > 1 ? '/dashboard/api/groups?search=' + encodeURIComponent(q) : '/dashboard/api/groups';
   const data = await api(url);
   if (!data) return;
-  const groups = data.items || data;
+  const groups = data.items;
   const list = document.getElementById('groupList');
   list.innerHTML = '';
   if (!groups.length) {
@@ -113,7 +120,7 @@ async function loadGroups() {
   groups.forEach(g => {
     const li = document.createElement('li');
     li.className = 'mb-1';
-    li.innerHTML = `<div class="font-semibold">${g.name} (${g.target})</div>`;
+    li.innerHTML = `<div class="flex justify-between items-center"><span class="font-semibold">${g.name} (${g.target})</span><button onclick="deleteGroup(${g.id})" class="text-red-600 text-xs underline">Delete</button></div>`;
     if (g.bots && g.bots.length) {
       const ul = document.createElement('ul');
       ul.className = 'pl-4 list-disc';
@@ -133,7 +140,7 @@ async function loadAccounts() {
   const url = q.length > 1 ? '/dashboard/api/accounts?search=' + encodeURIComponent(q) : '/dashboard/api/accounts';
   const data = await api(url);
   if (!data) return;
-  const accs = data.items || data;
+  const accs = data.items;
   const table = document.getElementById('accountTable');
   table.innerHTML = '<tr><th>ID</th><th>User</th><th>Group</th></tr>';
   if (!accs.length) {
@@ -154,7 +161,7 @@ async function loadBots() {
   const url = q.length > 1 ? '/dashboard/api/bots?search=' + encodeURIComponent(q) : '/dashboard/api/bots';
   const data = await api(url);
   if (!data) return;
-  const bots = data.items || data;
+  const bots = data.items;
   const table = document.getElementById('botTable');
   table.innerHTML = '<tr><th>ID</th><th>User</th><th>Status</th><th>Actions</th></tr>';
   if (!bots.length) {
@@ -177,6 +184,7 @@ async function loadBots() {
         `<button onclick="stopBot(${b.id})" class="bg-red-600 text-white px-2 py-1 text-xs rounded">Stop</button>` +
         `<button onclick="openCmd(${b.id})" class="bg-blue-500 text-white px-2 py-1 text-xs rounded">Cmd</button>` +
         `<button onclick="fetchLogs(${b.id})" class="underline text-xs">Logs</button>` +
+        `<button onclick="deleteBot(${b.id})" class="text-red-600 underline text-xs">Delete</button>` +
       `</td>`;
     table.appendChild(row);
   });
@@ -199,7 +207,12 @@ async function refreshStats() {
 }
 
 async function startScheduler() {
-  await api('/dashboard/api/scheduler/start', {method: 'POST'});
+  const res = await api('/dashboard/api/scheduler/start', {method: 'POST'});
+  if (res && res.message) {
+    showToast(res.message);
+  } else if (res && res.error) {
+    showToast(res.error, false);
+  }
 }
 
 async function startBot(id) {
@@ -211,6 +224,23 @@ async function startBot(id) {
 async function stopBot(id) {
   const res = await api(`/dashboard/api/bots/${id}/stop`, {method: 'POST'});
   if (res && res.stopped) showToast('Bot stopped');
+  loadBots();
+}
+
+async function deleteBot(id) {
+  if (!confirm('Delete bot?')) return;
+  const res = await api(`/dashboard/api/bots/${id}`, {method: 'DELETE'});
+  if (res && res.message) showToast(res.message); else if (res && res.error) showToast(res.error, false);
+  loadBots();
+  loadAccounts();
+}
+
+async function deleteGroup(id) {
+  if (!confirm('Delete group?')) return;
+  const res = await api(`/dashboard/api/groups/${id}`, {method: 'DELETE'});
+  if (res && res.message) showToast(res.message); else if (res && res.error) showToast(res.error, false);
+  loadGroups();
+  loadAccounts();
   loadBots();
 }
 

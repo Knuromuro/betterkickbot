@@ -11,11 +11,11 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body class="p-4 container mx-auto" id="body">
-  {% with messages = get_flashed_messages() %}
+  {% with messages = get_flashed_messages(with_categories=True) %}
     {% if messages %}
-      <ul class="mb-4">
-        {% for m in messages %}
-          <li class="bg-green-200 p-2 mb-2">{{ m }}</li>
+      <ul id="flash-messages" class="mb-4">
+        {% for cat, m in messages %}
+          <li class="flash p-2 mb-2 rounded {% if cat == 'error' %}bg-red-200 text-red-800{% else %}bg-green-200 text-green-800{% endif %}">{{ m }}</li>
         {% endfor %}
       </ul>
     {% endif %}

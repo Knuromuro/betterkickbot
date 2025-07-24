@@ -22,7 +22,7 @@ from shared.cache import init_cache
 from shared.logger import logger, init_logging
 from .models import db, SyncEvent
 from . import scheduler
-from .scheduler import sched, process_unsent_events
+from .scheduler import sched
 from .routes import api_bp, auth_bp
 from app.routes import register_web
 
@@ -88,7 +88,7 @@ def create_app(config: Optional[dict] = None) -> Flask:
                 fb = Path(app.config["SYNC_FALLBACK_FILE"])
                 if fb.exists():
                     fb.unlink()
-                scheduler.queue.enqueue(process_unsent_events, socketio)
+                scheduler.queue.enqueue(scheduler.enqueue_sync_job, socketio)
                 if not getattr(app, "redis_online", True):
                     logger.info("Redis connection restored")
                     socketio.emit("redis_status", {"online": True})
@@ -107,9 +107,14 @@ def create_app(config: Optional[dict] = None) -> Flask:
                 Timer(10, enqueue_sync).start()
 
         sched.add_job(
-            enqueue_sync, "interval", minutes=1, id="sync_sender", replace_existing=True
+            enqueue_sync,
+            "interval",
+            minutes=1,
+            id="sync_sender",
+            replace_existing=True,
         )
-        sched.start()
+        if not testing:
+            sched.start()
 
     @app.before_request
     def log_request() -> None:
