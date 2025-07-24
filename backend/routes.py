@@ -122,6 +122,7 @@ class GroupResource(Resource):
             logger.error("database error creating group", exc_info=True)
             return {"error": "database error"}, 400
         logger.info("created group %s", group.name)
+        cache.delete("groups")
         log_sync_event(
             "group",
             "create",
@@ -179,6 +180,7 @@ class AccountResource(Resource):
             logger.error("database error creating account", exc_info=True)
             return {"error": "database error"}, 400
         logger.info("created account %s in group %s", account.username, group_id)
+        cache.delete("groups")
         log_sync_event(
             "account",
             "create",
@@ -393,6 +395,7 @@ def sync_push():
                         interval=se.payload.get("interval", 600),
                     )
                 )
+                cache.delete("groups")
         elif se.entity == "account" and se.action == "create":
             if not Account.query.filter_by(
                 username=se.payload.get("username")
@@ -406,6 +409,7 @@ def sync_push():
                         group_id=se.payload.get("group_id"),
                     )
                 )
+                cache.delete("groups")
     db.session.commit()
     return {"status": "ok"}
 

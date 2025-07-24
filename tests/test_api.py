@@ -109,3 +109,33 @@ def test_bot_start_stop(client, tmp_path):
 
     res = client.post(f"/dashboard/api/bots/{aid}/stop")
     assert res.status_code == 200
+
+
+def test_group_cache_invalidation(client):
+    gid1 = client.post(
+        "/dashboard/api/groups", json={"name": "c1", "target": "t"}
+    ).get_json()["id"]
+    # prime cache
+    assert client.get("/dashboard/api/groups").status_code == 200
+
+    gid2 = client.post(
+        "/dashboard/api/groups", json={"name": "c2", "target": "t"}
+    ).get_json()["id"]
+
+    data = client.get("/dashboard/api/groups").get_json()
+    ids = {g["id"] for g in data["items"]}
+    assert {gid1, gid2} <= ids
+
+
+def test_group_cache_after_account(client):
+    gid = client.post(
+        "/dashboard/api/groups", json={"name": "cg", "target": "t"}
+    ).get_json()["id"]
+    client.get("/dashboard/api/groups")  # cache
+    client.post(
+        "/dashboard/api/accounts",
+        json={"username": "uu", "password": "pp", "group_id": gid},
+    )
+    data = client.get("/dashboard/api/groups").get_json()
+    bots = [g for g in data["items"] if g["id"] == gid][0]["bots"]
+    assert any(b["username"] == "uu" for b in bots)
