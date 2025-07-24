@@ -121,6 +121,16 @@ def create_app(config: Optional[dict] = None) -> Flask:
         except Exception:
             pass
 
+    @app.after_request
+    def add_csp(response):
+        csp = (
+            "default-src 'self'; object-src 'none'; "
+            "script-src 'self' https://cdn.jsdelivr.net https://cdn.socket.io; "
+            "style-src 'self' https://cdn.jsdelivr.net;"
+        )
+        response.headers["Content-Security-Policy"] = csp
+        return response
+
     register_web(app)
     api.init_app(app)
     app.register_blueprint(api_bp)
