@@ -77,6 +77,7 @@ def create_app(config: Optional[dict] = None) -> Flask:
     socketio.init_app(app)
 
     scheduler.init_redis()
+    scheduler.init_app(app, socketio)
     app.redis_online = True
     app.config.setdefault("SYNC_FALLBACK_FILE", str(Path("sync_fallback.jsonl")))
 
@@ -88,7 +89,7 @@ def create_app(config: Optional[dict] = None) -> Flask:
                 fb = Path(app.config["SYNC_FALLBACK_FILE"])
                 if fb.exists():
                     fb.unlink()
-                scheduler.queue.enqueue(process_unsent_events, socketio)
+                scheduler.queue.enqueue(process_unsent_events)
                 if not getattr(app, "redis_online", True):
                     logger.info("Redis connection restored")
                     socketio.emit("redis_status", {"online": True})
