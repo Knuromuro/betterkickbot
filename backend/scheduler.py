@@ -196,3 +196,10 @@ def process_unsent_events(socketio: SocketIO) -> None:
             )
             evt.synced = True
         db.session.commit()
+
+
+def enqueue_sync_job() -> None:
+    """Entry point for the RQ worker to process unsent events."""
+    from backend import socketio as _socketio
+
+    process_unsent_events(_socketio)
