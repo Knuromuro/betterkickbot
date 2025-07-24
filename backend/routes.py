@@ -77,13 +77,13 @@ def refresh_token():
 class GroupResource(Resource):
     @jwt_required(optional=True)
     def get(self):
-        search = (request.args.get("search") or "").strip()
+        search = request.args.get("search", "").strip()
         page = int(request.args.get("page") or 1)
         per_page = int(request.args.get("per_page") or 50)
         if not search and page == 1 and per_page == 50:
             cached = cache.get("groups")
             if cached is not None:
-                return cached
+                return cached, 200
         query = Group.query
         if search:
             query = query.filter(Group.name.ilike(f"%{search}%"))
@@ -101,7 +101,7 @@ class GroupResource(Resource):
         result = {"items": groups, "total": pagination.total}
         if not search and page == 1 and per_page == 50:
             cache.set("groups", result, timeout=60)
-        return result
+        return result, 200
 
     @role_required("operator", "admin")
     def post(self):
@@ -122,6 +122,7 @@ class GroupResource(Resource):
             logger.error("database error creating group", exc_info=True)
             return {"error": "database error"}, 400
         logger.info("created group %s", group.name)
+        cache.delete("groups")
         log_sync_event(
             "group",
             "create",
@@ -140,7 +141,7 @@ class GroupResource(Resource):
 class AccountResource(Resource):
     @jwt_required(optional=True)
     def get(self):
-        search = (request.args.get("search") or "").strip()
+        search = request.args.get("search", "").strip()
         page = int(request.args.get("page") or 1)
         per_page = int(request.args.get("per_page") or 50)
         query = Account.query
@@ -179,6 +180,7 @@ class AccountResource(Resource):
             logger.error("database error creating account", exc_info=True)
             return {"error": "database error"}, 400
         logger.info("created account %s in group %s", account.username, group_id)
+        cache.delete("groups")
         log_sync_event(
             "account",
             "create",
@@ -196,7 +198,7 @@ class AccountResource(Resource):
 class BotListResource(Resource):
     @jwt_required(optional=True)
     def get(self):
-        search = (request.args.get("search") or "").strip()
+        search = request.args.get("search", "").strip()
         page = int(request.args.get("page") or 1)
         per_page = int(request.args.get("per_page") or 50)
         query = Account.query
@@ -216,7 +218,7 @@ class BotListResource(Resource):
                     "status": status,
                 }
             )
-        return {"items": bots, "total": pagination.total}
+        return {"items": bots, "total": pagination.total}, 200
 
     @role_required("operator", "admin")
     def post(self):
@@ -334,6 +336,16 @@ class Stats(Resource):
         }
 
 
+@ns.route("/status", methods=["GET"], endpoint="status")
+class Status(Resource):
+    @jwt_required(optional=True)
+    def get(self):
+        return {
+            "redis": scheduler.redis_online,
+            "workers": scheduler.sched.running,
+        }, 200
+
+
 @api_bp.route("/sync/pull")
 @jwt_required(optional=True)
 def sync_pull():
@@ -383,6 +395,7 @@ def sync_push():
                         interval=se.payload.get("interval", 600),
                     )
                 )
+                cache.delete("groups")
         elif se.entity == "account" and se.action == "create":
             if not Account.query.filter_by(
                 username=se.payload.get("username")
@@ -396,6 +409,7 @@ def sync_push():
                         group_id=se.payload.get("group_id"),
                     )
                 )
+                cache.delete("groups")
     db.session.commit()
     return {"status": "ok"}
 

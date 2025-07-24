@@ -39,6 +39,7 @@ redis_conn: Optional[redis.Redis] = None
 queue = None
 redis_online = True
 APP: Optional[Flask] = None
+SOCKETIO: Optional[SocketIO] = None
 
 registry = CollectorRegistry()
 runs_counter = Counter("bot_runs", "Number of bot executions", registry=registry)
@@ -62,6 +63,13 @@ def init_redis() -> None:
     except Exception:  # noqa: broad-except
         redis_online = False
         logger.warning("Redis unavailable, tasks will run inline")
+
+
+def init_app(app: Flask, sock: SocketIO) -> None:
+    """Store references to the Flask app and socket for background tasks."""
+    global APP, SOCKETIO
+    APP = app
+    SOCKETIO = sock
 
 
 def log_sync_event(entity: str, action: str, payload: dict, socketio: SocketIO) -> None:
@@ -179,12 +187,13 @@ async def send_job(account_id: int, socketio: SocketIO) -> None:
     socketio.emit("status", {"message": f"sent message for {account_id}"})
 
 
-def process_unsent_events(socketio: SocketIO) -> None:
+def process_unsent_events() -> None:
     app = APP or current_app
     with app.app_context():
         events = SyncEvent.query.filter_by(synced=False).all()
+        sock = SOCKETIO or current_app.extensions.get("socketio")
         for evt in events:
-            socketio.emit(
+            sock.emit(
                 "sync_event",
                 {
                     "event_id": evt.event_id,
