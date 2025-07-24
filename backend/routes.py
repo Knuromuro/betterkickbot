@@ -136,6 +136,37 @@ class GroupResource(Resource):
         return {"id": group.id}, 201
 
 
+@ns.route("/groups/<int:group_id>", methods=["DELETE"], endpoint="group_delete")
+class GroupDelete(Resource):
+    @role_required("operator", "admin")
+    def delete(self, group_id: int):
+        group = Group.query.get(group_id)
+        if not group:
+            return {"error": "Group not found"}, 404
+        # remove related accounts/bots
+        for acc in list(group.accounts):
+            proc = scheduler.processes.get(acc.id)
+            if proc and proc.poll() is None:
+                proc.terminate()
+                scheduler.running_gauge.dec()
+            try:
+                sched.remove_job(str(acc.id))
+            except Exception:
+                pass
+            scheduler.bots.pop(acc.id, None)
+            scheduler.processes.pop(acc.id, None)
+            db.session.delete(acc)
+        db.session.delete(group)
+        db.session.commit()
+        log_sync_event(
+            "group",
+            "delete",
+            {"id": group_id},
+            current_app.extensions["socketio"],
+        )
+        return {"message": "Group deleted"}
+
+
 @ns.route("/accounts", methods=["GET", "POST"], endpoint="accounts")
 class AccountResource(Resource):
     @jwt_required(optional=True)
@@ -300,6 +331,35 @@ class BotStop(Resource):
             current_app.extensions["socketio"].emit("bot_stopped", {"id": bot_id})
             return {"stopped": True}
         return {"stopped": False}
+
+
+@ns.route("/bots/<int:bot_id>", methods=["DELETE"], endpoint="bot_delete")
+class BotDelete(Resource):
+    @role_required("operator", "admin")
+    def delete(self, bot_id: int):
+        account = Account.query.get(bot_id)
+        if not account:
+            return {"error": "Bot not found"}, 404
+        proc = scheduler.processes.get(bot_id)
+        if proc and proc.poll() is None:
+            proc.terminate()
+            scheduler.running_gauge.dec()
+            current_app.extensions["socketio"].emit("bot_stopped", {"id": bot_id})
+        try:
+            sched.remove_job(str(bot_id))
+        except Exception:
+            pass
+        scheduler.bots.pop(bot_id, None)
+        scheduler.processes.pop(bot_id, None)
+        db.session.delete(account)
+        db.session.commit()
+        log_sync_event(
+            "account",
+            "delete",
+            {"id": bot_id},
+            current_app.extensions["socketio"],
+        )
+        return {"message": "Bot deleted"}
 
 
 @ns.route("/bots/<int:bot_id>/status", methods=["GET"], endpoint="bot_status")
