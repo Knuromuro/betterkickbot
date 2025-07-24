@@ -287,7 +287,7 @@ class SchedulerStart(Resource):
         if not sched.running:
             sched.start()
         schedule_all(current_app.extensions["socketio"])
-        return {"status": "started"}
+        return {"message": "Scheduler started"}
 
 
 @ns.route("/bots/<int:bot_id>/start", methods=["POST"], endpoint="bot_start")

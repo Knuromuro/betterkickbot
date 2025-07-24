@@ -108,7 +108,7 @@ async function loadGroups() {
   const url = q.length > 1 ? '/dashboard/api/groups?search=' + encodeURIComponent(q) : '/dashboard/api/groups';
   const data = await api(url);
   if (!data) return;
-  const groups = data.items || data;
+  const groups = data.items;
   const list = document.getElementById('groupList');
   list.innerHTML = '';
   if (!groups.length) {
@@ -138,7 +138,7 @@ async function loadAccounts() {
   const url = q.length > 1 ? '/dashboard/api/accounts?search=' + encodeURIComponent(q) : '/dashboard/api/accounts';
   const data = await api(url);
   if (!data) return;
-  const accs = data.items || data;
+  const accs = data.items;
   const table = document.getElementById('accountTable');
   table.innerHTML = '<tr><th>ID</th><th>User</th><th>Group</th></tr>';
   if (!accs.length) {
@@ -159,7 +159,7 @@ async function loadBots() {
   const url = q.length > 1 ? '/dashboard/api/bots?search=' + encodeURIComponent(q) : '/dashboard/api/bots';
   const data = await api(url);
   if (!data) return;
-  const bots = data.items || data;
+  const bots = data.items;
   const table = document.getElementById('botTable');
   table.innerHTML = '<tr><th>ID</th><th>User</th><th>Status</th><th>Actions</th></tr>';
   if (!bots.length) {
@@ -205,7 +205,12 @@ async function refreshStats() {
 }
 
 async function startScheduler() {
-  await api('/dashboard/api/scheduler/start', {method: 'POST'});
+  const res = await api('/dashboard/api/scheduler/start', {method: 'POST'});
+  if (res && res.message) {
+    showToast(res.message);
+  } else if (res && res.error) {
+    showToast(res.error, false);
+  }
 }
 
 async function startBot(id) {

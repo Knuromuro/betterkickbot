@@ -127,3 +127,19 @@ def test_delete_endpoints(client):
     assert res.status_code == 200
     assert res.get_json()["message"] == "Group deleted"
     assert Group.query.get(gid) is None
+
+
+def test_scheduler_start(client, monkeypatch):
+    from backend import scheduler as backend_sched
+
+    started = []
+
+    def fake_start():
+        started.append(True)
+
+    monkeypatch.setattr(backend_sched.sched, "start", fake_start)
+
+    res = client.post("/dashboard/api/scheduler/start")
+    assert res.status_code == 200
+    assert res.get_json()["message"] == "Scheduler started"
+    assert started
