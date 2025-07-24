@@ -26,6 +26,8 @@ function showToast(msg, ok = true) {
 document.addEventListener('DOMContentLoaded', () => {
   const flashes = document.getElementById('flash-messages');
   if (flashes) setTimeout(() => flashes.remove(), 3000);
+  const startBtn = document.getElementById('startSchedulerBtn');
+  if (startBtn) startBtn.addEventListener('click', startScheduler);
 });
 
 async function checkRedis() {
