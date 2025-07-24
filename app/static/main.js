@@ -49,10 +49,14 @@ async function refreshToken() {
 }
 
 async function api(url, opts = {}) {
-  opts.headers = Object.assign({}, opts.headers, {
-    'X-CSRFToken': csrfToken,
-    'Authorization': 'Bearer ' + getAccess()
+  const token = getAccess();
+  const headers = Object.assign({}, opts.headers, {
+    'X-CSRFToken': csrfToken
   });
+  if (token) {
+    headers['Authorization'] = 'Bearer ' + token;
+  }
+  opts.headers = headers;
   showSpinner();
   let res = await fetch(url, opts).catch(() => null);
   if (res && res.status === 401) {
