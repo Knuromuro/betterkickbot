@@ -106,32 +106,27 @@ async function loadGroups() {
   const url = q.length > 1 ? '/dashboard/api/groups?search=' + encodeURIComponent(q) : '/dashboard/api/groups';
   const data = await api(url);
   if (!data) return;
-  const groups = data.items || data;
-  const list = document.getElementById('groupList');
-  list.innerHTML = '';
+  const groups = data.items || [];
+  const table = document.getElementById('groupTable');
+  table.innerHTML = '<tr><th>ID</th><th>Name</th><th>Target</th><th>Actions</th></tr>';
   if (!groups.length) {
-    list.innerHTML = '<li class="text-gray-500 text-sm">No groups created yet</li>';
+    const row = document.createElement('tr');
+    row.innerHTML = '<td class="border px-2 text-center" colspan="4">No groups created yet</td>';
+    table.appendChild(row);
     return;
   }
   groups.forEach(g => {
-    const li = document.createElement('li');
-    li.className = 'mb-1';
-    li.innerHTML = `<div class="font-semibold">${g.name} (${g.target})` +
-      ` <button onclick="startGroup(${g.id})" class="bg-green-600 text-white px-1 rounded text-xs">Start</button>` +
-      ` <button onclick="stopGroup(${g.id})" class="bg-red-600 text-white px-1 rounded text-xs">Stop</button>` +
-      ` <button onclick="deleteGroup(${g.id})" class="underline text-xs">Delete</button>` +
-      `</div>`;
-    if (g.bots && g.bots.length) {
-      const ul = document.createElement('ul');
-      ul.className = 'pl-4 list-disc';
-      g.bots.forEach(b => {
-        const bi = document.createElement('li');
-        bi.textContent = `${b.username} (#${b.id})`;
-        ul.appendChild(bi);
-      });
-      li.appendChild(ul);
-    }
-    list.appendChild(li);
+    const row = document.createElement('tr');
+    row.innerHTML =
+      `<td class="border px-2">${g.id}</td>` +
+      `<td class="border px-2">${g.name}</td>` +
+      `<td class="border px-2">${g.target}</td>` +
+      `<td class="border px-2 space-x-1">` +
+        `<button onclick="startGroup(${g.id})" class="bg-green-600 text-white px-2 py-1 text-xs rounded">Start</button>` +
+        `<button onclick="stopGroup(${g.id})" class="bg-red-600 text-white px-2 py-1 text-xs rounded">Stop</button>` +
+        `<button onclick="deleteGroup(${g.id})" class="underline text-xs">Delete</button>` +
+      `</td>`;
+    table.appendChild(row);
   });
 }
 
@@ -161,23 +156,24 @@ async function loadBots() {
   const url = q.length > 1 ? '/dashboard/api/bots?search=' + encodeURIComponent(q) : '/dashboard/api/bots';
   const data = await api(url);
   if (!data) return;
-  const bots = data.items || data;
+  const bots = data.items || [];
   const table = document.getElementById('botTable');
-  table.innerHTML = '<tr><th>ID</th><th>User</th><th>Status</th><th>Actions</th></tr>';
+  table.innerHTML = '<tr><th>ID</th><th>User</th><th>Group</th><th>Status</th><th>Actions</th></tr>';
   if (!bots.length) {
     const row = document.createElement('tr');
-    row.innerHTML = '<td class="border px-2 text-center" colspan="4">No bots created yet</td>';
+    row.innerHTML = '<td class="border px-2 text-center" colspan="5">No bots created yet</td>';
     table.appendChild(row);
     return;
   }
   bots.forEach(b => {
     const row = document.createElement('tr');
-    const badge = b.status === 'online'
+    const badge = b.status === 'running'
       ? '<span class="bg-green-500 text-white px-2 py-0.5 rounded">running</span>'
       : '<span class="bg-red-500 text-white px-2 py-0.5 rounded">stopped</span>';
     row.innerHTML =
       `<td class="border px-2">${b.id}</td>` +
       `<td class="border px-2">${b.username}</td>` +
+      `<td class="border px-2">${b.group}</td>` +
       `<td class="border px-2 text-center">${badge}</td>` +
       `<td class="border px-2 space-x-1">` +
         `<button onclick="startBot(${b.id})" class="bg-green-600 text-white px-2 py-1 text-xs rounded">Start</button>` +
@@ -214,12 +210,14 @@ async function startBot(id) {
   const res = await api(`/dashboard/api/bots/${id}/start`, {method: 'POST'});
   if (res && res.pid) showToast('Bot started');
   loadBots();
+  loadGroups();
 }
 
 async function stopBot(id) {
   const res = await api(`/dashboard/api/bots/${id}/stop`, {method: 'POST'});
   if (res && res.stopped) showToast('Bot stopped');
   loadBots();
+  loadGroups();
 }
 
 async function deleteBot(id) {
@@ -232,12 +230,14 @@ async function deleteBot(id) {
 async function startGroup(id) {
   const res = await api(`/dashboard/api/groups/${id}/start`, {method: 'POST'});
   if (res) showToast(`Started ${res.started || 0} bots`);
+  loadGroups();
   loadBots();
 }
 
 async function stopGroup(id) {
   const res = await api(`/dashboard/api/groups/${id}/stop`, {method: 'POST'});
   if (res) showToast(`Stopped ${res.stopped || 0} bots`);
+  loadGroups();
   loadBots();
 }
 

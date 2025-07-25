@@ -101,7 +101,7 @@ class GroupResource(Resource):
         result = {"items": groups, "total": pagination.total}
         if not search and page == 1 and per_page == 50:
             cache.set("groups", result, timeout=60)
-        return result
+        return result, 200
 
     @role_required("operator", "admin")
     def post(self):
@@ -253,18 +253,18 @@ class BotListResource(Resource):
         pagination = query.paginate(page=page, per_page=per_page, error_out=False)
         bots = []
         for acc in pagination.items:
-            status = (
-                "online" if (Path("logs") / f"bot_{acc.id}.log").exists() else "offline"
-            )
+            proc = scheduler.processes.get(acc.id)
+            status = "running" if proc and proc.poll() is None else "stopped"
+            group = Group.query.get(acc.group_id)
             bots.append(
                 {
                     "id": acc.id,
                     "username": acc.username,
-                    "group_id": acc.group_id,
+                    "group": group.name if group else "",
                     "status": status,
                 }
             )
-        return {"items": bots, "total": pagination.total}
+        return {"items": bots, "total": pagination.total}, 200
 
     @role_required("operator", "admin")
     def post(self):
