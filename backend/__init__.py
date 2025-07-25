@@ -131,6 +131,7 @@ def create_app(config: Optional[dict] = None) -> Flask:
         sched.start()
         import atexit
         from . import scheduler as backend_scheduler
+        backend_scheduler.APP = app
         atexit.register(backend_scheduler.shutdown)
 
     @app.before_request
