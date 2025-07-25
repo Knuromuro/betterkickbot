@@ -136,6 +136,35 @@ class GroupResource(Resource):
         return {"id": group.id}, 201
 
 
+@ns.route("/groups/<int:group_id>", methods=["DELETE"], endpoint="group_delete")
+class GroupDelete(Resource):
+    @role_required("operator", "admin")
+    def delete(self, group_id: int):
+        group = Group.query.get(group_id)
+        if not group:
+            return {"error": "group not found"}, 404
+        for acc in Account.query.filter_by(group_id=group_id).all():
+            proc = scheduler.processes.get(acc.id)
+            if proc and proc.poll() is None:
+                proc.terminate()
+                scheduler.running_gauge.dec()
+            db.session.delete(acc)
+        db.session.delete(group)
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            return {"error": "database error"}, 400
+        cache.delete("groups")
+        log_sync_event(
+            "group",
+            "delete",
+            {"id": group_id},
+            current_app.extensions["socketio"],
+        )
+        return {"deleted": True}
+
+
 @ns.route("/accounts", methods=["GET", "POST"], endpoint="accounts")
 class AccountResource(Resource):
     @jwt_required(optional=True)
@@ -300,6 +329,32 @@ class BotStop(Resource):
             current_app.extensions["socketio"].emit("bot_stopped", {"id": bot_id})
             return {"stopped": True}
         return {"stopped": False}
+
+
+@ns.route("/bots/<int:bot_id>", methods=["DELETE"], endpoint="bot_delete")
+class BotDelete(Resource):
+    @role_required("operator", "admin")
+    def delete(self, bot_id: int):
+        account = Account.query.get(bot_id)
+        if not account:
+            return {"error": "bot not found"}, 404
+        proc = scheduler.processes.get(bot_id)
+        if proc and proc.poll() is None:
+            proc.terminate()
+            scheduler.running_gauge.dec()
+        db.session.delete(account)
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            return {"error": "database error"}, 400
+        log_sync_event(
+            "account",
+            "delete",
+            {"id": bot_id},
+            current_app.extensions["socketio"],
+        )
+        return {"deleted": True}
 
 
 @ns.route("/bots/<int:bot_id>/status", methods=["GET"], endpoint="bot_status")

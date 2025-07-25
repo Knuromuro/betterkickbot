@@ -109,3 +109,23 @@ def test_bot_start_stop(client, tmp_path):
 
     res = client.post(f"/dashboard/api/bots/{aid}/stop")
     assert res.status_code == 200
+
+
+def test_delete_group_and_bot(client):
+    gid = client.post(
+        "/dashboard/api/groups", json={"name": "dg", "target": "t"}
+    ).get_json()["id"]
+    aid = client.post(
+        "/dashboard/api/accounts",
+        json={"username": "delbot", "password": "p", "group_id": gid},
+    ).get_json()["id"]
+
+    res = client.delete(f"/dashboard/api/bots/{aid}")
+    assert res.status_code == 200
+    assert res.get_json()["deleted"]
+    assert all(b["id"] != aid for b in client.get("/dashboard/api/bots").get_json()["items"])
+
+    res = client.delete(f"/dashboard/api/groups/{gid}")
+    assert res.status_code == 200
+    assert res.get_json()["deleted"]
+    assert all(g["id"] != gid for g in client.get("/dashboard/api/groups").get_json()["items"])
