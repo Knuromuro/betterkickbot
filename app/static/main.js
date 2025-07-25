@@ -249,6 +249,16 @@ async function deleteGroup(id) {
   loadBots();
 }
 
+async function repairDb() {
+  const res = await api('/dashboard/api/repairdb', {method: 'POST'});
+  if (res && res.status === 'ok') {
+    showToast('Database rebuilt');
+    loadGroups();
+    loadAccounts();
+    loadBots();
+  }
+}
+
 async function fetchLogs(id) {
   if (logTimer) clearInterval(logTimer);
   async function load() {
@@ -265,6 +275,8 @@ async function fetchLogs(id) {
 
 document.getElementById('addGroupBtn').addEventListener('click', () => openModal('groupModal'));
 document.getElementById('addAccountBtn').addEventListener('click', () => openModal('accountModal'));
+const repairBtn = document.getElementById('repairDbBtn');
+if (repairBtn) repairBtn.addEventListener('click', repairDb);
 let groupTimer, accountTimer, botTimer;
 document.getElementById('groupSearch').addEventListener('input', () => {
   clearTimeout(groupTimer);

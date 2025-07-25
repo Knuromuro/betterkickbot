@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from backend import create_app
+from flask import Flask
 from backend.models import db, Group, Account
 
 DATA_FILE = Path(__file__).resolve().parent.parent / "data.json"
@@ -19,8 +19,10 @@ def load_data() -> dict:
     return {"accounts": [], "groups": []}
 
 
-def rebuild_db() -> None:
-    app = create_app()
+def rebuild_db(app: Flask | None = None) -> None:
+    if app is None:
+        from backend import create_app
+        app = create_app()
     data = load_data()
     with app.app_context():
         db.drop_all()

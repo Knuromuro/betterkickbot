@@ -20,6 +20,7 @@ from .models import db, Group, Account, GroupSchema, AccountSchema, SyncEvent
 from .utils import role_required
 from . import scheduler
 from .scheduler import sched, schedule_all, log_sync_event
+from scripts.repair_db import rebuild_db
 import bcrypt
 
 api_bp = Blueprint("api", __name__)
@@ -461,3 +462,11 @@ def metrics():
 
     data = generate_latest(registry)
     return Response(data, mimetype="text/plain")
+
+
+@ns.route("/repairdb", methods=["POST"], endpoint="repair_db")
+class RepairDB(Resource):
+    @role_required("admin")
+    def post(self):
+        rebuild_db(current_app)
+        return {"status": "ok"}
