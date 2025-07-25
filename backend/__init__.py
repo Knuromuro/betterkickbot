@@ -71,7 +71,23 @@ def create_app(config: Optional[dict] = None) -> Flask:
     init_logging(None)
     csrf.init_app(app)
     limiter.init_app(app)
-    talisman.init_app(app, force_https=not app.config.get("TESTING", False))
+    csp = {
+        "default-src": ["'self'"],
+        "script-src": [
+            "'self'",
+            "https://cdn.jsdelivr.net",
+            "https://cdn.socket.io",
+        ],
+        "style-src": [
+            "'self'",
+            "https://cdn.jsdelivr.net",
+        ],
+    }
+    talisman.init_app(
+        app,
+        force_https=not app.config.get("TESTING", False),
+        content_security_policy=csp,
+    )
     jwt.init_app(app)
     db.init_app(app)
     socketio.init_app(app)
@@ -110,6 +126,9 @@ def create_app(config: Optional[dict] = None) -> Flask:
             enqueue_sync, "interval", minutes=1, id="sync_sender", replace_existing=True
         )
         sched.start()
+        import atexit
+        from . import scheduler as backend_scheduler
+        atexit.register(backend_scheduler.shutdown)
 
     @app.before_request
     def log_request() -> None:
