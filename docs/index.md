@@ -2,6 +2,12 @@
 
 This site describes API endpoints and usage of the KickBot system.
 
+## Features
+
+- Manage groups and bot accounts
+- Start or stop bots on demand
+- **New:** delete groups or bots from the dashboard
+
 ## Running locally
 
 ```bash
