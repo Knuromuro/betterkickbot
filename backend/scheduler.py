@@ -179,12 +179,14 @@ async def send_job(account_id: int, socketio: SocketIO) -> None:
     socketio.emit("status", {"message": f"sent message for {account_id}"})
 
 
-def process_unsent_events(socketio: SocketIO) -> None:
+def process_unsent_events(sock: Optional[SocketIO] = None) -> None:
+    from . import socketio as default_socketio
+    sock = sock or default_socketio
     app = APP or current_app
     with app.app_context():
         events = SyncEvent.query.filter_by(synced=False).all()
         for evt in events:
-            socketio.emit(
+            sock.emit(
                 "sync_event",
                 {
                     "event_id": evt.event_id,
@@ -196,3 +198,7 @@ def process_unsent_events(socketio: SocketIO) -> None:
             )
             evt.synced = True
         db.session.commit()
+
+
+def enqueue_sync_job() -> None:
+    process_unsent_events()

@@ -113,7 +113,11 @@ async function loadGroups() {
   groups.forEach(g => {
     const li = document.createElement('li');
     li.className = 'mb-1';
-    li.innerHTML = `<div class="font-semibold">${g.name} (${g.target})</div>`;
+    li.innerHTML =
+      `<div class="flex justify-between items-center">` +
+      `<span class="font-semibold">${g.name} (${g.target})</span>` +
+      `<button onclick="deleteGroup(${g.id})" class="text-red-600 text-xs underline">Delete</button>` +
+      `</div>`;
     if (g.bots && g.bots.length) {
       const ul = document.createElement('ul');
       ul.className = 'pl-4 list-disc';
@@ -175,6 +179,7 @@ async function loadBots() {
       `<td class="border px-2 space-x-1">` +
         `<button onclick="startBot(${b.id})" class="bg-green-600 text-white px-2 py-1 text-xs rounded">Start</button>` +
         `<button onclick="stopBot(${b.id})" class="bg-red-600 text-white px-2 py-1 text-xs rounded">Stop</button>` +
+        `<button onclick="deleteBot(${b.id})" class="bg-gray-600 text-white px-2 py-1 text-xs rounded">Delete</button>` +
         `<button onclick="openCmd(${b.id})" class="bg-blue-500 text-white px-2 py-1 text-xs rounded">Cmd</button>` +
         `<button onclick="fetchLogs(${b.id})" class="underline text-xs">Logs</button>` +
       `</td>`;
@@ -212,6 +217,24 @@ async function stopBot(id) {
   const res = await api(`/dashboard/api/bots/${id}/stop`, {method: 'POST'});
   if (res && res.stopped) showToast('Bot stopped');
   loadBots();
+}
+
+async function deleteBot(id) {
+  if (!confirm('Delete this bot?')) return;
+  const res = await api(`/dashboard/api/bots/${id}`, {method: 'DELETE'});
+  if (res && res.deleted) showToast('Bot deleted');
+  loadBots();
+  loadGroups();
+  loadAccounts();
+}
+
+async function deleteGroup(id) {
+  if (!confirm('Delete this group?')) return;
+  const res = await api(`/dashboard/api/groups/${id}`, {method: 'DELETE'});
+  if (res && res.deleted) showToast('Group deleted');
+  loadGroups();
+  loadBots();
+  loadAccounts();
 }
 
 async function fetchLogs(id) {
