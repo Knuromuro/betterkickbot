@@ -142,3 +142,18 @@ def test_invalid_pagination_defaults(client):
 
     res = client.get("/dashboard/api/bots?per_page=b")
     assert res.status_code == 200
+
+
+def test_bots_list_shows_created_bot(client):
+    gid = client.post(
+        "/dashboard/api/groups", json={"name": "lb", "target": "t"}
+    ).get_json()["id"]
+    aid = client.post(
+        "/dashboard/api/accounts",
+        json={"username": "lbot", "password": "p", "group_id": gid},
+    ).get_json()["id"]
+
+    res = client.get("/dashboard/api/bots")
+    assert res.status_code == 200
+    data = res.get_json()
+    assert any(b["id"] == aid for b in data["items"]) and "total" in data

@@ -252,9 +252,8 @@ class BotListResource(Resource):
         pagination = query.paginate(page=page, per_page=per_page, error_out=False)
         bots = []
         for acc in pagination.items:
-            status = (
-                "online" if (Path("logs") / f"bot_{acc.id}.log").exists() else "offline"
-            )
+            proc = scheduler.processes.get(acc.id)
+            status = "online" if proc and proc.poll() is None else "offline"
             bots.append(
                 {
                     "id": acc.id,
