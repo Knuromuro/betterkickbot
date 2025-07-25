@@ -297,9 +297,36 @@ class BotStop(Resource):
         if proc and proc.poll() is None:
             proc.terminate()
             scheduler.running_gauge.dec()
+            scheduler.processes.pop(bot_id, None)
             current_app.extensions["socketio"].emit("bot_stopped", {"id": bot_id})
             return {"stopped": True}
+        scheduler.processes.pop(bot_id, None)
         return {"stopped": False}
+
+
+@ns.route("/bots/<int:bot_id>", methods=["DELETE"], endpoint="bot_delete")
+class BotDelete(Resource):
+    @role_required("operator", "admin")
+    def delete(self, bot_id: int):
+        proc = scheduler.processes.get(bot_id)
+        if proc and proc.poll() is None:
+            proc.terminate()
+            scheduler.running_gauge.dec()
+        scheduler.processes.pop(bot_id, None)
+        current_app.extensions["socketio"].emit("bot_stopped", {"id": bot_id})
+        account = Account.query.get(bot_id)
+        if not account:
+            return {"error": "bot not found"}, 404
+        db.session.delete(account)
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            return {"error": "database error"}, 400
+        log_sync_event(
+            "account", "delete", {"id": bot_id}, current_app.extensions["socketio"]
+        )
+        return {"deleted": True}
 
 
 @ns.route("/bots/<int:bot_id>/status", methods=["GET"], endpoint="bot_status")
