@@ -44,7 +44,10 @@ def create_app(config: Optional[dict] = None) -> Flask:
         template_folder=str(base_dir.parent / "app" / "templates"),
     )
 
-    db_uri = os.getenv("DATABASE_URL") or f"sqlite:///{cfg.DB_PATH}"
+    if os.getenv("DATABASE_URL"):
+        db_uri = os.getenv("DATABASE_URL")
+    else:
+        db_uri = f"sqlite:///{Path(cfg.DB_PATH).resolve()}"
     app.config.update(
         {
             "SECRET_KEY": cfg.SECRET_KEY,
