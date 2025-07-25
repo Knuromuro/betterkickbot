@@ -104,6 +104,11 @@ def test_bot_start_stop(client, tmp_path):
     assert res.status_code == 200
     assert "pid" in res.get_json()
 
+    # starting again should return an error
+    res2 = client.post(f"/dashboard/api/bots/{aid}/start")
+    assert res2.status_code == 400
+    assert res2.get_json()["error"] == "bot already running"
+
     res = client.get(f"/dashboard/api/bots/{aid}/status")
     assert res.status_code == 200
 

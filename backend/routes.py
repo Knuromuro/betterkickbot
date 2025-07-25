@@ -282,6 +282,10 @@ class BotStart(Resource):
             "--token",
             Account.query.get(bot_id).password,
         ]
+        existing = scheduler.processes.get(bot_id)
+        if existing and existing.poll() is None:
+            return {"error": "bot already running", "pid": existing.pid}, 400
+
         proc = subprocess.Popen(cmd)
         scheduler.processes[bot_id] = proc
         scheduler.running_gauge.inc()
