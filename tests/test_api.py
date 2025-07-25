@@ -129,3 +129,16 @@ def test_delete_group_and_bot(client):
     assert res.status_code == 200
     assert res.get_json()["deleted"]
     assert all(g["id"] != gid for g in client.get("/dashboard/api/groups").get_json()["items"])
+
+
+def test_invalid_pagination_defaults(client):
+    res = client.get("/dashboard/api/groups?page=a&per_page=x")
+    assert res.status_code == 200
+    data = res.get_json()
+    assert "items" in data and "total" in data
+
+    res = client.get("/dashboard/api/accounts?page=a")
+    assert res.status_code == 200
+
+    res = client.get("/dashboard/api/bots?per_page=b")
+    assert res.status_code == 200
