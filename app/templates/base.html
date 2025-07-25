@@ -29,6 +29,7 @@
   </div>
   <div id="offlineBanner" class="hidden bg-red-200 p-2 mb-2" role="status" aria-live="polite">Offline mode</div>
   <div id="redisBanner" class="hidden bg-yellow-200 p-2 mb-2" role="status" aria-live="polite">Redis offline</div>
+  <div id="workerBanner" class="hidden bg-yellow-200 p-2 mb-2" role="status" aria-live="polite">Scheduler stopped</div>
   <div id="toast" class="fixed top-4 right-4 bg-green-500 text-white px-3 py-2 rounded shadow hidden"></div>
   {% block content %}{% endblock %}
   <script>
@@ -52,6 +53,10 @@
   window.addEventListener('online', () => document.getElementById('offlineBanner').classList.add('hidden'));
   function updateRedis(status) {
     const b = document.getElementById('redisBanner');
+    if (status) b.classList.add('hidden'); else b.classList.remove('hidden');
+  }
+  function updateWorker(status) {
+    const b = document.getElementById('workerBanner');
     if (status) b.classList.add('hidden'); else b.classList.remove('hidden');
   }
   </script>

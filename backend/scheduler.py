@@ -32,7 +32,13 @@ sched = BackgroundScheduler(
 )
 
 aio_loop = asyncio.new_event_loop()
-_thread = Thread(target=lambda: aio_loop.run_forever(), daemon=True)
+
+
+def _run_loop() -> None:
+    aio_loop.run_forever()
+
+
+_thread = Thread(target=_run_loop, daemon=True)
 _thread.start()
 
 redis_conn: Optional[redis.Redis] = None
@@ -49,6 +55,61 @@ running_gauge = Gauge(
 
 bots: Dict[int, BotInstance] = {}
 processes: Dict[int, subprocess.Popen] = {}
+
+
+def shutdown() -> None:
+    """Stop scheduler and event loop."""
+    sched.shutdown(wait=False)
+    aio_loop.call_soon_threadsafe(aio_loop.stop)
+
+
+def start_bot_process(bot_id: int) -> Optional[subprocess.Popen]:
+    """Start a bot subprocess and track it."""
+    app = APP or current_app
+    with app.app_context():
+        account = Account.query.get(bot_id)
+        if not account:
+            return None
+        group = Group.query.get(account.group_id)
+        if not group:
+            return None
+    msg = "Hello from KickBot"
+    msg_path = Path(account.messages_file or "")
+    if msg_path.is_file():
+        msg = msg_path.read_text().splitlines()[0]
+    cmd = [
+        "python",
+        str(Path(__file__).resolve().parent.parent / "scripts" / "run_bot.py"),
+        "--channel",
+        group.target,
+        "--message",
+        msg,
+        "--interval",
+        str(group.interval),
+        "--token",
+        account.password,
+    ]
+    proc = subprocess.Popen(cmd)
+    processes[bot_id] = proc
+    running_gauge.inc()
+    return proc
+
+
+def stop_bot_process(bot_id: int) -> bool:
+    """Stop and clean up a running bot process."""
+    proc = processes.get(bot_id)
+    if proc and proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        running_gauge.dec()
+        processes.pop(bot_id, None)
+        return True
+    processes.pop(bot_id, None)
+    return False
 
 
 def init_redis() -> None:
@@ -124,6 +185,11 @@ def run_bot_task(bot_id: int, socketio: SocketIO) -> None:
         socketio.emit("bot_error", {"id": bot_id})
 
 
+def enqueue_send_job(bot_id: int, socketio: SocketIO) -> None:
+    """Enqueue send_job coroutine on the background loop."""
+    asyncio.run_coroutine_threadsafe(send_job(bot_id, socketio), aio_loop)
+
+
 def schedule_all(socketio: SocketIO) -> None:
     sched.remove_all_jobs()
     for acc in Account.query.all():
@@ -132,10 +198,9 @@ def schedule_all(socketio: SocketIO) -> None:
             continue
         try:
             sched.add_job(
-                lambda aid=acc.id: asyncio.run_coroutine_threadsafe(
-                    send_job(aid, socketio), aio_loop
-                ),
+                enqueue_send_job,
                 "interval",
+                args=[acc.id, socketio],
                 seconds=group.interval,
                 id=str(acc.id),
                 replace_existing=True,
