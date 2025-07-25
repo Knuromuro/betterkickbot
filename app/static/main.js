@@ -158,7 +158,7 @@ async function loadBots() {
   if (!data) return;
   const bots = data.items || [];
   const table = document.getElementById('botTable');
-  table.innerHTML = '<tr><th>ID</th><th>User</th><th>Group</th><th>Status</th><th>Actions</th></tr>';
+  table.innerHTML = '<tr><th>ID</th><th>User</th><th>Group ID</th><th>Status</th><th>Actions</th></tr>';
   if (!bots.length) {
     const row = document.createElement('tr');
     row.innerHTML = '<td class="border px-2 text-center" colspan="5">No bots created yet</td>';
@@ -173,7 +173,7 @@ async function loadBots() {
     row.innerHTML =
       `<td class="border px-2">${b.id}</td>` +
       `<td class="border px-2">${b.username}</td>` +
-      `<td class="border px-2">${b.group}</td>` +
+      `<td class="border px-2">${b.group_id}</td>` +
       `<td class="border px-2 text-center">${badge}</td>` +
       `<td class="border px-2 space-x-1">` +
         `<button onclick="startBot(${b.id})" class="bg-green-600 text-white px-2 py-1 text-xs rounded">Start</button>` +

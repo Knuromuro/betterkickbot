@@ -261,6 +261,7 @@ class BotListResource(Resource):
                 {
                     "id": acc.id,
                     "username": acc.username,
+                    "group_id": acc.group_id,
                     "group": group.name if group else "",
                     "status": status,
                 }
