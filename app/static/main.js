@@ -63,7 +63,12 @@ async function api(url, opts = {}) {
     }
   }
   hideSpinner();
-  if (!res) return null;
+  if (!res || !res.ok) {
+    if (res && res.status === 401) {
+      showToast('Please log in', false);
+    }
+    return null;
+  }
   return res.json();
 }
 
