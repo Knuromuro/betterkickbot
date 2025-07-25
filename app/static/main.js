@@ -135,7 +135,7 @@ async function loadAccounts() {
   const url = q.length > 1 ? '/dashboard/api/accounts?search=' + encodeURIComponent(q) : '/dashboard/api/accounts';
   const data = await api(url);
   if (!data) return;
-  const accs = data.items || data;
+  const accs = data.items || [];
   const table = document.getElementById('accountTable');
   table.innerHTML = '<tr><th>ID</th><th>User</th><th>Group</th></tr>';
   if (!accs.length) {
