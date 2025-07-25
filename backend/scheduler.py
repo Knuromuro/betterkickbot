@@ -1,23 +1,26 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
-from threading import Thread, Timer as _Timer  # Timer re-exported for tests
 import subprocess
+from pathlib import Path
+from threading import Thread
+from threading import Timer as _Timer  # Timer re-exported for tests
 from typing import Dict, Optional
 from uuid import uuid4
 
 import redis
-from rq import Queue
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.schedulers.background import BackgroundScheduler
-from flask import current_app, Flask
+from flask import Flask, current_app
+from flask_socketio import SocketIO
+from prometheus_client import CollectorRegistry, Counter, Gauge
+from rq import Queue
+
+from bots.instance import BotInstance
 from shared.config import load_config
 from shared.logger import logger, notify_webhook
-from bots.instance import BotInstance
-from .models import db, Group, Account, Log, SyncEvent
-from flask_socketio import SocketIO
-from prometheus_client import Counter, Gauge, CollectorRegistry
+
+from .models import Account, Group, Log, SyncEvent, db
 
 Timer = _Timer
 
@@ -49,6 +52,18 @@ running_gauge = Gauge(
 
 bots: Dict[int, BotInstance] = {}
 processes: Dict[int, subprocess.Popen] = {}
+
+
+def remove_bot(bot_id: int) -> None:
+    """Stop and unschedule a bot."""
+    job = sched.get_job(str(bot_id))
+    if job:
+        sched.remove_job(str(bot_id))
+    proc = processes.pop(bot_id, None)
+    if proc and proc.poll() is None:
+        proc.terminate()
+        running_gauge.dec()
+    bots.pop(bot_id, None)
 
 
 def init_redis() -> None:

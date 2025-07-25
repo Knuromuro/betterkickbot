@@ -1,8 +1,8 @@
-import pytest
 import bcrypt
+import pytest
 
 from backend import create_app
-from backend.models import db
+from backend.models import Account, Group, db
 
 
 @pytest.fixture
@@ -109,3 +109,21 @@ def test_bot_start_stop(client, tmp_path):
 
     res = client.post(f"/dashboard/api/bots/{aid}/stop")
     assert res.status_code == 200
+
+
+def test_delete_group_and_bot(client):
+    gid = client.post(
+        "/dashboard/api/groups", json={"name": "delg", "target": "t"}
+    ).get_json()["id"]
+    aid = client.post(
+        "/dashboard/api/accounts",
+        json={"username": "del", "password": "p", "group_id": gid},
+    ).get_json()["id"]
+
+    res = client.delete(f"/dashboard/api/bots/{aid}")
+    assert res.status_code == 200
+    assert Account.query.get(aid) is None
+
+    res = client.delete(f"/dashboard/api/groups/{gid}")
+    assert res.status_code == 200
+    assert Group.query.get(gid) is None

@@ -63,7 +63,12 @@ async function api(url, opts = {}) {
     }
   }
   hideSpinner();
-  if (!res) return null;
+  if (!res || !res.ok) {
+    if (res && res.status === 401) {
+      showToast('Please log in', false);
+    }
+    return null;
+  }
   return res.json();
 }
 
@@ -74,6 +79,27 @@ function closeCmd() { document.getElementById('cmdDialog').close(); }
 function openCmd(id) {
   document.getElementById('cmd-id').value = id;
   document.getElementById('cmdDialog').showModal();
+}
+
+async function deleteGroup(id) {
+  const res = await api(`/dashboard/api/groups/${id}`, { method: 'DELETE' });
+  if (res && res.deleted) {
+    showToast('Group deleted');
+    loadGroups();
+    loadAccounts();
+    loadBots();
+    syncPush();
+  }
+}
+
+async function deleteBot(id) {
+  const res = await api(`/dashboard/api/bots/${id}`, { method: 'DELETE' });
+  if (res && res.deleted) {
+    showToast('Bot deleted');
+    loadAccounts();
+    loadBots();
+    syncPush();
+  }
 }
 
 async function syncPull() {
@@ -113,7 +139,7 @@ async function loadGroups() {
   groups.forEach(g => {
     const li = document.createElement('li');
     li.className = 'mb-1';
-    li.innerHTML = `<div class="font-semibold">${g.name} (${g.target})</div>`;
+    li.innerHTML = `<div class="flex justify-between"><span class="font-semibold">${g.name} (${g.target})</span><button onclick="deleteGroup(${g.id})" class="text-red-600 text-xs">Delete</button></div>`;
     if (g.bots && g.bots.length) {
       const ul = document.createElement('ul');
       ul.className = 'pl-4 list-disc';
@@ -177,6 +203,7 @@ async function loadBots() {
         `<button onclick="stopBot(${b.id})" class="bg-red-600 text-white px-2 py-1 text-xs rounded">Stop</button>` +
         `<button onclick="openCmd(${b.id})" class="bg-blue-500 text-white px-2 py-1 text-xs rounded">Cmd</button>` +
         `<button onclick="fetchLogs(${b.id})" class="underline text-xs">Logs</button>` +
+        `<button onclick="deleteBot(${b.id})" class="text-red-600 underline text-xs">Delete</button>` +
       `</td>`;
     table.appendChild(row);
   });

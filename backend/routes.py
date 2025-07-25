@@ -1,26 +1,27 @@
 from __future__ import annotations
 
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
-from flask import Blueprint, request, current_app, Response
-from flask_restx import Api, Resource
+import bcrypt
+from flask import Blueprint, Response, current_app, request
 from flask_jwt_extended import (
     create_access_token,
     create_refresh_token,
-    jwt_required,
     get_jwt,
+    jwt_required,
 )
+from flask_restx import Api, Resource
 from marshmallow import ValidationError
 from prometheus_client import generate_latest
 
 from shared.cache import cache
 from shared.logger import logger
-from .models import db, Group, Account, GroupSchema, AccountSchema, SyncEvent
-from .utils import role_required
+
 from . import scheduler
-from .scheduler import sched, schedule_all, log_sync_event
-import bcrypt
+from .models import Account, AccountSchema, Group, GroupSchema, SyncEvent, db
+from .scheduler import log_sync_event, remove_bot, sched, schedule_all
+from .utils import role_required
 
 api_bp = Blueprint("api", __name__)
 api = Api(api_bp, doc="/docs")
@@ -134,6 +135,34 @@ class GroupResource(Resource):
             current_app.extensions["socketio"],
         )
         return {"id": group.id}, 201
+
+
+@ns.route("/groups/<int:group_id>", methods=["DELETE"], endpoint="group_delete")
+class GroupDelete(Resource):
+    @role_required("operator", "admin")
+    def delete(self, group_id: int):
+        group = Group.query.get(group_id)
+        if not group:
+            return {"error": "group not found"}, 404
+        accounts = Account.query.filter_by(group_id=group_id).all()
+        for acc in accounts:
+            remove_bot(acc.id)
+            db.session.delete(acc)
+            log_sync_event(
+                "account",
+                "delete",
+                {"id": acc.id},
+                current_app.extensions["socketio"],
+            )
+        db.session.delete(group)
+        db.session.commit()
+        log_sync_event(
+            "group",
+            "delete",
+            {"id": group_id},
+            current_app.extensions["socketio"],
+        )
+        return {"deleted": True}
 
 
 @ns.route("/accounts", methods=["GET", "POST"], endpoint="accounts")
@@ -322,6 +351,25 @@ class BotLogs(Resource):
             return []
         lines = log_path.read_text(errors="ignore").splitlines()[-50:]
         return lines
+
+
+@ns.route("/bots/<int:bot_id>", methods=["DELETE"], endpoint="bot_delete")
+class BotDelete(Resource):
+    @role_required("operator", "admin")
+    def delete(self, bot_id: int):
+        account = Account.query.get(bot_id)
+        if not account:
+            return {"error": "bot not found"}, 404
+        remove_bot(bot_id)
+        db.session.delete(account)
+        db.session.commit()
+        log_sync_event(
+            "account",
+            "delete",
+            {"id": bot_id},
+            current_app.extensions["socketio"],
+        )
+        return {"deleted": True}
 
 
 @ns.route("/stats", methods=["GET"], endpoint="stats")
