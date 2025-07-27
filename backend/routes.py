@@ -200,7 +200,7 @@ class AccountResource(Resource):
             {"id": a.id, "username": a.username, "group_id": a.group_id}
             for a in pagination.items
         ]
-        return {"items": accounts, "total": pagination.total}
+        return {"items": accounts, "total": pagination.total}, 200
 
     @role_required("operator", "admin")
     def post(self):
@@ -385,8 +385,8 @@ class Status(Resource):
     @jwt_required(optional=True)
     def get(self):
         return {
-            "redis_online": scheduler.redis_online,
-            "worker_online": sched.running,
+            "redis": scheduler.redis_online,
+            "workers": sched.running,
         }
 
 

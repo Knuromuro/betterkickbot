@@ -24,13 +24,13 @@ function showToast(msg, ok = true) {
   setTimeout(() => toastBox.classList.add('hidden'), 3000);
 }
 
-async function checkRedis() {
+async function loadStatus() {
   const res = await fetch('/dashboard/api/status').catch(() => null);
   if (!res || !res.ok) return;
   const data = await res.json();
-  if (data.redis_online) redisBanner.classList.add('hidden');
+  if (data.redis) redisBanner.classList.add('hidden');
   else redisBanner.classList.remove('hidden');
-  if (data.worker_online) workerBanner.classList.add('hidden');
+  if (data.workers) workerBanner.classList.add('hidden');
   else workerBanner.classList.remove('hidden');
 }
 
@@ -387,9 +387,9 @@ const socket = io();
 ['bot_started','bot_stopped','bot_error','status'].forEach(evt => {
   socket.on(evt, () => { loadBots(); refreshStats(); });
 });
-socket.on('redis_status', () => checkRedis());
+socket.on('redis_status', () => loadStatus());
 socket.on('sync_event', syncPull);
-socket.on('connect', () => { syncPull(); syncPush(); checkRedis(); });
+socket.on('connect', () => { syncPull(); syncPush(); loadStatus(); });
 
 window.addEventListener('load', () => {
   loadGroups();
@@ -398,7 +398,7 @@ window.addEventListener('load', () => {
   refreshStats();
   syncPull();
   syncPush();
-  checkRedis();
-  setInterval(checkRedis, 5000);
+  loadStatus();
+  setInterval(loadStatus, 5000);
   if (!navigator.onLine) document.getElementById('offlineBanner').classList.remove('hidden');
 });

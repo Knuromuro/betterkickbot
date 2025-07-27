@@ -190,6 +190,14 @@ def enqueue_send_job(bot_id: int, socketio: SocketIO) -> None:
     asyncio.run_coroutine_threadsafe(send_job(bot_id, socketio), aio_loop)
 
 
+def enqueue_sync_job(socketio: SocketIO) -> None:
+    """Enqueue the sync task or run inline if Redis is unavailable."""
+    if queue:
+        queue.enqueue(process_unsent_events, socketio)
+    else:
+        process_unsent_events(socketio)
+
+
 def schedule_all(socketio: SocketIO) -> None:
     sched.remove_all_jobs()
     for acc in Account.query.all():
