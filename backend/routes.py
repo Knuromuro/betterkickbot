@@ -20,6 +20,7 @@ from .models import db, Group, Account, GroupSchema, AccountSchema, SyncEvent
 from .utils import role_required
 from . import scheduler
 from .scheduler import sched, schedule_all, log_sync_event
+from scripts.repair_db import rebuild_db
 import bcrypt
 
 api_bp = Blueprint("api", __name__)
@@ -101,7 +102,7 @@ class GroupResource(Resource):
         result = {"items": groups, "total": pagination.total}
         if not search and page == 1 and per_page == 50:
             cache.set("groups", result, timeout=60)
-        return result
+        return result, 200
 
     @role_required("operator", "admin")
     def post(self):
@@ -136,6 +137,54 @@ class GroupResource(Resource):
         return {"id": group.id}, 201
 
 
+@ns.route("/groups/<int:group_id>", methods=["DELETE"], endpoint="group_delete")
+class GroupDelete(Resource):
+    @role_required("operator", "admin")
+    def delete(self, group_id: int):
+        group = Group.query.get(group_id)
+        if not group:
+            return {"error": "group not found"}, 404
+        for acc in group.accounts:
+            scheduler.stop_bot_process(acc.id)
+            scheduler.sched.remove_job(str(acc.id))
+            db.session.delete(acc)
+        db.session.delete(group)
+        db.session.commit()
+        current_app.extensions["socketio"].emit("group_deleted", {"id": group_id})
+        return {"deleted": True}
+
+
+@ns.route("/groups/<int:group_id>/start", methods=["POST"], endpoint="group_start")
+class GroupStart(Resource):
+    @role_required("operator", "admin")
+    def post(self, group_id: int):
+        group = Group.query.get(group_id)
+        if not group:
+            return {"error": "group not found"}, 404
+        started = 0
+        for acc in group.accounts:
+            proc = scheduler.start_bot_process(acc.id)
+            if proc:
+                started += 1
+                current_app.extensions["socketio"].emit("bot_started", {"id": acc.id})
+        return {"started": started}
+
+
+@ns.route("/groups/<int:group_id>/stop", methods=["POST"], endpoint="group_stop")
+class GroupStop(Resource):
+    @role_required("operator", "admin")
+    def post(self, group_id: int):
+        group = Group.query.get(group_id)
+        if not group:
+            return {"error": "group not found"}, 404
+        stopped = 0
+        for acc in group.accounts:
+            if scheduler.stop_bot_process(acc.id):
+                stopped += 1
+                current_app.extensions["socketio"].emit("bot_stopped", {"id": acc.id})
+        return {"stopped": stopped}
+
+
 @ns.route("/accounts", methods=["GET", "POST"], endpoint="accounts")
 class AccountResource(Resource):
     @jwt_required(optional=True)
@@ -151,7 +200,7 @@ class AccountResource(Resource):
             {"id": a.id, "username": a.username, "group_id": a.group_id}
             for a in pagination.items
         ]
-        return {"items": accounts, "total": pagination.total}
+        return {"items": accounts, "total": pagination.total}, 200
 
     @role_required("operator", "admin")
     def post(self):
@@ -205,18 +254,19 @@ class BotListResource(Resource):
         pagination = query.paginate(page=page, per_page=per_page, error_out=False)
         bots = []
         for acc in pagination.items:
-            status = (
-                "online" if (Path("logs") / f"bot_{acc.id}.log").exists() else "offline"
-            )
+            proc = scheduler.processes.get(acc.id)
+            status = "running" if proc and proc.poll() is None else "stopped"
+            group = Group.query.get(acc.group_id)
             bots.append(
                 {
                     "id": acc.id,
                     "username": acc.username,
                     "group_id": acc.group_id,
+                    "group": group.name if group else "",
                     "status": status,
                 }
             )
-        return {"items": bots, "total": pagination.total}
+        return {"items": bots, "total": pagination.total}, 200
 
     @role_required("operator", "admin")
     def post(self):
@@ -263,43 +313,39 @@ class SchedulerStart(Resource):
 class BotStart(Resource):
     @role_required("operator", "admin")
     def post(self, bot_id: int):
-        group = Group.query.join(Account).filter(Account.id == bot_id).first()
-        if not group:
+        proc = scheduler.processes.get(bot_id)
+        if proc and proc.poll() is None:
+            scheduler.stop_bot_process(bot_id)
+        new_proc = scheduler.start_bot_process(bot_id)
+        if not new_proc:
             return {"error": "bot not found"}, 404
-        msg_path = Path(Account.query.get(bot_id).messages_file or "")
-        msg = "Hello from KickBot"
-        if msg_path.is_file():
-            msg = msg_path.read_text().splitlines()[0]
-        cmd = [
-            "python",
-            str(Path(__file__).resolve().parent.parent / "scripts" / "run_bot.py"),
-            "--channel",
-            group.target,
-            "--message",
-            msg,
-            "--interval",
-            str(group.interval),
-            "--token",
-            Account.query.get(bot_id).password,
-        ]
-        proc = subprocess.Popen(cmd)
-        scheduler.processes[bot_id] = proc
-        scheduler.running_gauge.inc()
         current_app.extensions["socketio"].emit("bot_started", {"id": bot_id})
-        return {"pid": proc.pid}
+        return {"pid": new_proc.pid}
 
 
 @ns.route("/bots/<int:bot_id>/stop", methods=["POST"], endpoint="bot_stop")
 class BotStop(Resource):
     @role_required("operator", "admin")
     def post(self, bot_id: int):
-        proc = scheduler.processes.get(bot_id)
-        if proc and proc.poll() is None:
-            proc.terminate()
-            scheduler.running_gauge.dec()
+        stopped = scheduler.stop_bot_process(bot_id)
+        if stopped:
             current_app.extensions["socketio"].emit("bot_stopped", {"id": bot_id})
-            return {"stopped": True}
-        return {"stopped": False}
+        return {"stopped": stopped}
+
+
+@ns.route("/bots/<int:bot_id>", methods=["DELETE"], endpoint="bot_delete")
+class BotDelete(Resource):
+    @role_required("operator", "admin")
+    def delete(self, bot_id: int):
+        acc = Account.query.get(bot_id)
+        if not acc:
+            return {"error": "bot not found"}, 404
+        scheduler.stop_bot_process(bot_id)
+        scheduler.sched.remove_job(str(bot_id))
+        db.session.delete(acc)
+        db.session.commit()
+        current_app.extensions["socketio"].emit("bot_deleted", {"id": bot_id})
+        return {"deleted": True}
 
 
 @ns.route("/bots/<int:bot_id>/status", methods=["GET"], endpoint="bot_status")
@@ -331,6 +377,16 @@ class Stats(Resource):
         return {
             "runs": int(scheduler.runs_counter._value.get()),
             "errors": int(scheduler.errors_counter._value.get()),
+        }
+
+
+@ns.route("/status", methods=["GET"], endpoint="status")
+class Status(Resource):
+    @jwt_required(optional=True)
+    def get(self):
+        return {
+            "redis": scheduler.redis_online,
+            "workers": sched.running,
         }
 
 
@@ -407,3 +463,11 @@ def metrics():
 
     data = generate_latest(registry)
     return Response(data, mimetype="text/plain")
+
+
+@ns.route("/repairdb", methods=["POST"], endpoint="repair_db")
+class RepairDB(Resource):
+    @role_required("admin")
+    def post(self):
+        rebuild_db(current_app)
+        return {"status": "ok"}

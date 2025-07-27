@@ -44,7 +44,10 @@ def create_app(config: Optional[dict] = None) -> Flask:
         template_folder=str(base_dir.parent / "app" / "templates"),
     )
 
-    db_uri = os.getenv("DATABASE_URL") or f"sqlite:///{cfg.DB_PATH}"
+    if os.getenv("DATABASE_URL"):
+        db_uri = os.getenv("DATABASE_URL")
+    else:
+        db_uri = f"sqlite:///{Path(cfg.DB_PATH).resolve()}"
     app.config.update(
         {
             "SECRET_KEY": cfg.SECRET_KEY,
@@ -71,7 +74,23 @@ def create_app(config: Optional[dict] = None) -> Flask:
     init_logging(None)
     csrf.init_app(app)
     limiter.init_app(app)
-    talisman.init_app(app, force_https=not app.config.get("TESTING", False))
+    csp = {
+        "default-src": ["'self'"],
+        "script-src": [
+            "'self'",
+            "https://cdn.jsdelivr.net",
+            "https://cdn.socket.io",
+        ],
+        "style-src": [
+            "'self'",
+            "https://cdn.jsdelivr.net",
+        ],
+    }
+    talisman.init_app(
+        app,
+        force_https=not app.config.get("TESTING", False),
+        content_security_policy=csp,
+    )
     jwt.init_app(app)
     db.init_app(app)
     socketio.init_app(app)
@@ -88,7 +107,7 @@ def create_app(config: Optional[dict] = None) -> Flask:
                 fb = Path(app.config["SYNC_FALLBACK_FILE"])
                 if fb.exists():
                     fb.unlink()
-                scheduler.queue.enqueue(process_unsent_events, socketio)
+                scheduler.enqueue_sync_job(socketio)
                 if not getattr(app, "redis_online", True):
                     logger.info("Redis connection restored")
                     socketio.emit("redis_status", {"online": True})
@@ -110,6 +129,11 @@ def create_app(config: Optional[dict] = None) -> Flask:
             enqueue_sync, "interval", minutes=1, id="sync_sender", replace_existing=True
         )
         sched.start()
+        import atexit
+        from . import scheduler as backend_scheduler
+        atexit.register(backend_scheduler.shutdown)
+    from . import scheduler as backend_scheduler
+    backend_scheduler.APP = app
 
     @app.before_request
     def log_request() -> None:

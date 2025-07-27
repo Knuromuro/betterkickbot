@@ -1,6 +1,7 @@
 const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
 const spinner = document.getElementById('spinner');
 const redisBanner = document.getElementById('redisBanner');
+const workerBanner = document.getElementById('workerBanner');
 const toastBox = document.getElementById('toast');
 let chart;
 let logTimer = null;
@@ -23,12 +24,14 @@ function showToast(msg, ok = true) {
   setTimeout(() => toastBox.classList.add('hidden'), 3000);
 }
 
-async function checkRedis() {
+async function loadStatus() {
   const res = await fetch('/dashboard/api/status').catch(() => null);
   if (!res || !res.ok) return;
   const data = await res.json();
-  if (data.redis_online) redisBanner.classList.add('hidden');
+  if (data.redis) redisBanner.classList.add('hidden');
   else redisBanner.classList.remove('hidden');
+  if (data.workers) workerBanner.classList.add('hidden');
+  else workerBanner.classList.remove('hidden');
 }
 
 function getAccess() {
@@ -103,28 +106,27 @@ async function loadGroups() {
   const url = q.length > 1 ? '/dashboard/api/groups?search=' + encodeURIComponent(q) : '/dashboard/api/groups';
   const data = await api(url);
   if (!data) return;
-  const groups = data.items || data;
-  const list = document.getElementById('groupList');
-  list.innerHTML = '';
+  const groups = data.items || [];
+  const table = document.getElementById('groupTable');
+  table.innerHTML = '<tr><th>ID</th><th>Name</th><th>Target</th><th>Actions</th></tr>';
   if (!groups.length) {
-    list.innerHTML = '<li class="text-gray-500 text-sm">No groups created yet</li>';
+    const row = document.createElement('tr');
+    row.innerHTML = '<td class="border px-2 text-center" colspan="4">No groups created yet</td>';
+    table.appendChild(row);
     return;
   }
   groups.forEach(g => {
-    const li = document.createElement('li');
-    li.className = 'mb-1';
-    li.innerHTML = `<div class="font-semibold">${g.name} (${g.target})</div>`;
-    if (g.bots && g.bots.length) {
-      const ul = document.createElement('ul');
-      ul.className = 'pl-4 list-disc';
-      g.bots.forEach(b => {
-        const bi = document.createElement('li');
-        bi.textContent = `${b.username} (#${b.id})`;
-        ul.appendChild(bi);
-      });
-      li.appendChild(ul);
-    }
-    list.appendChild(li);
+    const row = document.createElement('tr');
+    row.innerHTML =
+      `<td class="border px-2">${g.id}</td>` +
+      `<td class="border px-2">${g.name}</td>` +
+      `<td class="border px-2">${g.target}</td>` +
+      `<td class="border px-2 space-x-1">` +
+        `<button onclick="startGroup(${g.id})" class="bg-green-600 text-white px-2 py-1 text-xs rounded">Start</button>` +
+        `<button onclick="stopGroup(${g.id})" class="bg-red-600 text-white px-2 py-1 text-xs rounded">Stop</button>` +
+        `<button onclick="deleteGroup(${g.id})" class="underline text-xs">Delete</button>` +
+      `</td>`;
+    table.appendChild(row);
   });
 }
 
@@ -133,7 +135,7 @@ async function loadAccounts() {
   const url = q.length > 1 ? '/dashboard/api/accounts?search=' + encodeURIComponent(q) : '/dashboard/api/accounts';
   const data = await api(url);
   if (!data) return;
-  const accs = data.items || data;
+  const accs = data.items || [];
   const table = document.getElementById('accountTable');
   table.innerHTML = '<tr><th>ID</th><th>User</th><th>Group</th></tr>';
   if (!accs.length) {
@@ -154,29 +156,31 @@ async function loadBots() {
   const url = q.length > 1 ? '/dashboard/api/bots?search=' + encodeURIComponent(q) : '/dashboard/api/bots';
   const data = await api(url);
   if (!data) return;
-  const bots = data.items || data;
+  const bots = data.items || [];
   const table = document.getElementById('botTable');
-  table.innerHTML = '<tr><th>ID</th><th>User</th><th>Status</th><th>Actions</th></tr>';
+  table.innerHTML = '<tr><th>ID</th><th>User</th><th>Group</th><th>Status</th><th>Actions</th></tr>';
   if (!bots.length) {
     const row = document.createElement('tr');
-    row.innerHTML = '<td class="border px-2 text-center" colspan="4">No bots created yet</td>';
+    row.innerHTML = '<td class="border px-2 text-center" colspan="5">No bots created yet</td>';
     table.appendChild(row);
     return;
   }
   bots.forEach(b => {
     const row = document.createElement('tr');
-    const badge = b.status === 'online'
+    const badge = b.status === 'running'
       ? '<span class="bg-green-500 text-white px-2 py-0.5 rounded">running</span>'
       : '<span class="bg-red-500 text-white px-2 py-0.5 rounded">stopped</span>';
     row.innerHTML =
       `<td class="border px-2">${b.id}</td>` +
       `<td class="border px-2">${b.username}</td>` +
+      `<td class="border px-2">${b.group} (#${b.group_id})</td>` +
       `<td class="border px-2 text-center">${badge}</td>` +
       `<td class="border px-2 space-x-1">` +
         `<button onclick="startBot(${b.id})" class="bg-green-600 text-white px-2 py-1 text-xs rounded">Start</button>` +
         `<button onclick="stopBot(${b.id})" class="bg-red-600 text-white px-2 py-1 text-xs rounded">Stop</button>` +
         `<button onclick="openCmd(${b.id})" class="bg-blue-500 text-white px-2 py-1 text-xs rounded">Cmd</button>` +
         `<button onclick="fetchLogs(${b.id})" class="underline text-xs">Logs</button>` +
+        `<button onclick="deleteBot(${b.id})" class="underline text-xs">Delete</button>` +
       `</td>`;
     table.appendChild(row);
   });
@@ -206,12 +210,53 @@ async function startBot(id) {
   const res = await api(`/dashboard/api/bots/${id}/start`, {method: 'POST'});
   if (res && res.pid) showToast('Bot started');
   loadBots();
+  loadGroups();
 }
 
 async function stopBot(id) {
   const res = await api(`/dashboard/api/bots/${id}/stop`, {method: 'POST'});
   if (res && res.stopped) showToast('Bot stopped');
   loadBots();
+  loadGroups();
+}
+
+async function deleteBot(id) {
+  const res = await api(`/dashboard/api/bots/${id}`, {method: 'DELETE'});
+  if (res && res.deleted) showToast('Bot deleted');
+  loadBots();
+  loadAccounts();
+}
+
+async function startGroup(id) {
+  const res = await api(`/dashboard/api/groups/${id}/start`, {method: 'POST'});
+  if (res) showToast(`Started ${res.started || 0} bots`);
+  loadGroups();
+  loadBots();
+}
+
+async function stopGroup(id) {
+  const res = await api(`/dashboard/api/groups/${id}/stop`, {method: 'POST'});
+  if (res) showToast(`Stopped ${res.stopped || 0} bots`);
+  loadGroups();
+  loadBots();
+}
+
+async function deleteGroup(id) {
+  const res = await api(`/dashboard/api/groups/${id}`, {method: 'DELETE'});
+  if (res && res.deleted) showToast('Group deleted');
+  loadGroups();
+  loadAccounts();
+  loadBots();
+}
+
+async function repairDb() {
+  const res = await api('/dashboard/api/repairdb', {method: 'POST'});
+  if (res && res.status === 'ok') {
+    showToast('Database rebuilt');
+    loadGroups();
+    loadAccounts();
+    loadBots();
+  }
 }
 
 async function fetchLogs(id) {
@@ -230,6 +275,8 @@ async function fetchLogs(id) {
 
 document.getElementById('addGroupBtn').addEventListener('click', () => openModal('groupModal'));
 document.getElementById('addAccountBtn').addEventListener('click', () => openModal('accountModal'));
+const repairBtn = document.getElementById('repairDbBtn');
+if (repairBtn) repairBtn.addEventListener('click', repairDb);
 let groupTimer, accountTimer, botTimer;
 document.getElementById('groupSearch').addEventListener('input', () => {
   clearTimeout(groupTimer);
@@ -340,9 +387,9 @@ const socket = io();
 ['bot_started','bot_stopped','bot_error','status'].forEach(evt => {
   socket.on(evt, () => { loadBots(); refreshStats(); });
 });
-socket.on('redis_status', () => checkRedis());
+socket.on('redis_status', () => loadStatus());
 socket.on('sync_event', syncPull);
-socket.on('connect', () => { syncPull(); syncPush(); checkRedis(); });
+socket.on('connect', () => { syncPull(); syncPush(); loadStatus(); });
 
 window.addEventListener('load', () => {
   loadGroups();
@@ -351,7 +398,7 @@ window.addEventListener('load', () => {
   refreshStats();
   syncPull();
   syncPush();
-  checkRedis();
-  setInterval(checkRedis, 10000);
+  loadStatus();
+  setInterval(loadStatus, 5000);
   if (!navigator.onLine) document.getElementById('offlineBanner').classList.remove('hidden');
 });
