@@ -11,6 +11,7 @@ from selenium.webdriver.support import expected_conditions as EC
 import time
 import websockets
 
+from shared.kick_tokens import looks_like_cookie_token
 from shared.logger import get_bot_logger
 
 WS_URI = os.getenv("KICK_WS_URI", "wss://chat.kick.com/channel/{target}")
@@ -54,6 +55,9 @@ class BotInstance:
         raise ConnectionError("Unable to connect")
 
     def login(self):
+        if looks_like_cookie_token(self.account.password):
+            self.log.warning("cookie tokens are local-test only; live login blocked")
+            raise RuntimeError("cookie tokens are local-test only")
         if self.driver is None:
             self._init_driver()
         d = self.driver

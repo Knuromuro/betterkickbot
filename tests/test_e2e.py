@@ -1,6 +1,7 @@
 import os
 import socket
 import subprocess
+import sys
 import time
 import pytest
 
@@ -33,7 +34,7 @@ def start_server(port, db_path):
     env = os.environ.copy()
     env["TESTING"] = "1"
     env["DB_PATH"] = str(db_path)
-    proc = subprocess.Popen(["python", "run.py", "--port", str(port)], env=env)
+    proc = subprocess.Popen([sys.executable, "run.py", "--port", str(port)], env=env)
     wait_http(f"http://127.0.0.1:{port}/login")
     return proc
 

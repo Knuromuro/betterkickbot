@@ -23,6 +23,27 @@ function showToast(msg, ok = true) {
   setTimeout(() => toastBox.classList.add('hidden'), 3000);
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function modeBadge(kind, mode) {
+  const label = mode === 'local_cookie_test' ? 'cookie test'
+    : mode === 'local_test' ? 'local test'
+    : mode === 'live_kick' || mode === 'live' ? 'live kick'
+    : kind || 'unknown';
+  const color = mode === 'live_kick' || mode === 'live' ? 'bg-blue-600'
+    : mode === 'local_cookie_test' ? 'bg-yellow-600'
+    : kind === 'empty' ? 'bg-red-600'
+    : 'bg-gray-600';
+  return `<span class="${color} text-white px-2 py-0.5 rounded text-xs">${label}</span>`;
+}
+
 async function checkRedis() {
   const res = await fetch('/dashboard/api/status').catch(() => null);
   if (!res || !res.ok) return;
@@ -50,9 +71,10 @@ async function refreshToken() {
 
 async function api(url, opts = {}) {
   opts.headers = Object.assign({}, opts.headers, {
-    'X-CSRFToken': csrfToken,
-    'Authorization': 'Bearer ' + getAccess()
+    'X-CSRFToken': csrfToken
   });
+  const access = getAccess();
+  if (access) opts.headers['Authorization'] = 'Bearer ' + access;
   showSpinner();
   let res = await fetch(url, opts).catch(() => null);
   if (res && res.status === 401) {
@@ -135,16 +157,20 @@ async function loadAccounts() {
   if (!data) return;
   const accs = data.items || data;
   const table = document.getElementById('accountTable');
-  table.innerHTML = '<tr><th>ID</th><th>User</th><th>Group</th></tr>';
+  table.innerHTML = '<tr><th>ID</th><th>User</th><th>Group</th><th>Token</th></tr>';
   if (!accs.length) {
     const row = document.createElement('tr');
-    row.innerHTML = '<td class="border px-2 text-center" colspan="3">No accounts</td>';
+    row.innerHTML = '<td class="border px-2 text-center" colspan="4">No accounts</td>';
     table.appendChild(row);
     return;
   }
   accs.forEach(a => {
     const row = document.createElement('tr');
-    row.innerHTML = `<td class="border px-2">${a.id}</td><td class="border px-2">${a.username}</td><td class="border px-2">${a.group_id}</td>`;
+    row.innerHTML =
+      `<td class="border px-2">${a.id}</td>` +
+      `<td class="border px-2">${a.username}</td>` +
+      `<td class="border px-2">${a.group_id}</td>` +
+      `<td class="border px-2 text-center">${modeBadge(a.token_kind, a.token_mode)}</td>`;
     table.appendChild(row);
   });
 }
@@ -156,10 +182,10 @@ async function loadBots() {
   if (!data) return;
   const bots = data.items || data;
   const table = document.getElementById('botTable');
-  table.innerHTML = '<tr><th>ID</th><th>User</th><th>Status</th><th>Actions</th></tr>';
+  table.innerHTML = '<tr><th>ID</th><th>User</th><th>Status</th><th>Mode</th><th>Actions</th></tr>';
   if (!bots.length) {
     const row = document.createElement('tr');
-    row.innerHTML = '<td class="border px-2 text-center" colspan="4">No bots created yet</td>';
+    row.innerHTML = '<td class="border px-2 text-center" colspan="5">No bots created yet</td>';
     table.appendChild(row);
     return;
   }
@@ -172,6 +198,7 @@ async function loadBots() {
       `<td class="border px-2">${b.id}</td>` +
       `<td class="border px-2">${b.username}</td>` +
       `<td class="border px-2 text-center">${badge}</td>` +
+      `<td class="border px-2 text-center">${modeBadge(b.token_kind, b.mode)}</td>` +
       `<td class="border px-2 space-x-1">` +
         `<button onclick="startBot(${b.id})" class="bg-green-600 text-white px-2 py-1 text-xs rounded">Start</button>` +
         `<button onclick="stopBot(${b.id})" class="bg-red-600 text-white px-2 py-1 text-xs rounded">Stop</button>` +
@@ -204,7 +231,11 @@ async function startScheduler() {
 
 async function startBot(id) {
   const res = await api(`/dashboard/api/bots/${id}/start`, {method: 'POST'});
-  if (res && res.pid) showToast('Bot started');
+  if (res && res.error) showToast(res.error, false);
+  else if (res && res.pid && res.mode === 'local_cookie_test') showToast('Local cookie test started');
+  else if (res && res.pid) showToast('Bot started');
+  fetchLogs(id);
+  loadLocalEvents();
   loadBots();
 }
 
@@ -226,6 +257,107 @@ async function fetchLogs(id) {
   }
   await load();
   logTimer = setInterval(load, 3000);
+}
+
+async function loadLocalEvents() {
+  await loadLocalReport();
+  await loadLocalQueue();
+  const data = await api('/dashboard/api/local/events?limit=50');
+  if (!data) return;
+  const events = data.items || [];
+  const table = document.getElementById('localEventTable');
+  table.innerHTML = '<tr><th>Time</th><th>Action</th><th>Status</th><th>Code</th><th>Channel</th><th>Actor</th><th>Content</th></tr>';
+  if (!events.length) {
+    const row = document.createElement('tr');
+    row.innerHTML = '<td class="border px-2 text-center" colspan="7">No local events yet</td>';
+    table.appendChild(row);
+    return;
+  }
+  events.slice().reverse().forEach(evt => {
+    const row = document.createElement('tr');
+    const when = (evt.timestamp || '').replace('T', ' ').replace('+00:00', 'Z');
+    const content = evt.content || evt.detail || '';
+    const statusColor = evt.status === 'success' ? 'text-green-700' : 'text-red-700';
+    row.innerHTML =
+      `<td class="border px-2">${escapeHtml(when)}</td>` +
+      `<td class="border px-2">${escapeHtml(evt.action || '')}</td>` +
+      `<td class="border px-2 ${statusColor}">${escapeHtml(evt.status || '')}</td>` +
+      `<td class="border px-2">${escapeHtml(evt.code || '')}</td>` +
+      `<td class="border px-2">${escapeHtml(evt.channel || '')}</td>` +
+      `<td class="border px-2">${escapeHtml(evt.actor || '')}</td>` +
+      `<td class="border px-2">${escapeHtml(content)}</td>`;
+    table.appendChild(row);
+  });
+}
+
+async function loadLocalReport() {
+  const report = await api('/dashboard/api/local/report');
+  if (!report) return;
+  const box = document.getElementById('localReport');
+  const action = report.actions || {};
+  const queue = report.queue || {};
+  const accounts = report.accounts || {};
+  const accountStatuses = accounts.by_status || {};
+  box.innerHTML = [
+    ['Actions', action.total || 0, `ok ${action.success || 0} / failed ${action.failed || 0}`],
+    ['Rate limit', action.rate_limited || 0, 'blocked by limits'],
+    ['Queue', queue.total || 0, Object.entries(queue.by_status || {}).map(([k, v]) => `${k}: ${v}`).join(', ') || 'empty'],
+    ['Accounts', accounts.total || 0, Object.entries(accountStatuses).map(([k, v]) => `${k}: ${v}`).join(', ') || 'none'],
+  ].map(([label, value, detail]) =>
+    `<div class="border rounded p-2 bg-gray-50"><div class="text-gray-500">${label}</div><div class="font-bold text-lg">${value}</div><div class="text-xs">${escapeHtml(detail)}</div></div>`
+  ).join('');
+}
+
+async function loadLocalQueue() {
+  const data = await api('/dashboard/api/local/queue');
+  if (!data) return;
+  const jobs = data.items || [];
+  const table = document.getElementById('localQueueTable');
+  table.innerHTML = '<tr><th>ID</th><th>Action</th><th>Status</th><th>Attempts</th><th>Account</th><th>Channel</th><th>Error</th></tr>';
+  if (!jobs.length) {
+    const row = document.createElement('tr');
+    row.innerHTML = '<td class="border px-2 text-center" colspan="7">Queue is empty</td>';
+    table.appendChild(row);
+    return;
+  }
+  jobs.slice(-20).reverse().forEach(job => {
+    const row = document.createElement('tr');
+    row.innerHTML =
+      `<td class="border px-2">${escapeHtml(String(job.id || '').slice(0, 8))}</td>` +
+      `<td class="border px-2">${escapeHtml(job.action || '')}</td>` +
+      `<td class="border px-2">${escapeHtml(job.status || '')}</td>` +
+      `<td class="border px-2">${escapeHtml(job.attempts || 0)}/${escapeHtml(job.max_attempts || 0)}</td>` +
+      `<td class="border px-2">${escapeHtml(job.account_id || '')}</td>` +
+      `<td class="border px-2">${escapeHtml(job.channel || '')}</td>` +
+      `<td class="border px-2">${escapeHtml(job.last_error || '')}</td>`;
+    table.appendChild(row);
+  });
+}
+
+async function processLocalQueue() {
+  const res = await api('/dashboard/api/local/queue/process', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({limit: 200})
+  });
+  if (res) showToast(`Processed ${res.count || 0} local jobs`);
+  loadLocalEvents();
+}
+
+async function runLocalMassTest() {
+  const res = await api('/dashboard/api/local/mass-test', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action_count: 1000, account_count: 50, channel: 'local-load-test', process: true})
+  });
+  if (res) showToast(`Queued ${res.queued || 0}, processed ${res.processed || 0}`);
+  loadLocalEvents();
+}
+
+async function clearLocalEvents() {
+  const res = await api('/dashboard/api/local/events', {method: 'DELETE'});
+  if (res && res.status === 'ok') showToast('Local events cleared');
+  loadLocalEvents();
 }
 
 document.getElementById('addGroupBtn').addEventListener('click', () => openModal('groupModal'));
@@ -328,9 +460,12 @@ document.getElementById('cmdForm').addEventListener('submit', async e => {
     showToast('Queued offline', true);
   } else if (res && res.status === 'ok') {
     showToast('Command queued');
+  } else if (res && res.error) {
+    showToast(res.error, false);
   }
   closeCmd();
   fetchLogs(id);
+  loadLocalEvents();
   syncPush();
 });
 
@@ -338,7 +473,7 @@ if (Notification && Notification.permission !== 'granted') { Notification.reques
 
 const socket = io();
 ['bot_started','bot_stopped','bot_error','status'].forEach(evt => {
-  socket.on(evt, () => { loadBots(); refreshStats(); });
+  socket.on(evt, () => { loadBots(); refreshStats(); loadLocalEvents(); });
 });
 socket.on('redis_status', () => checkRedis());
 socket.on('sync_event', syncPull);
@@ -348,6 +483,7 @@ window.addEventListener('load', () => {
   loadGroups();
   loadAccounts();
   loadBots();
+  loadLocalEvents();
   refreshStats();
   syncPull();
   syncPush();

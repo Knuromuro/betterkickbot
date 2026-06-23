@@ -37,6 +37,22 @@
       <h2 class="font-bold text-lg mb-2">Logs</h2>
       <pre id="logBox" class="bg-gray-100 p-2 h-64 overflow-auto rounded">Select a bot to view logs</pre>
     </div>
+    <div class="bg-white rounded shadow p-4">
+      <div class="flex justify-between items-center mb-2">
+        <h2 class="font-bold text-lg">Local Kick Mock</h2>
+        <div class="space-x-2">
+          <button onclick="loadLocalEvents()" class="bg-blue-500 text-white px-2 py-1 text-sm rounded">Refresh</button>
+          <button onclick="processLocalQueue()" class="bg-indigo-600 text-white px-2 py-1 text-sm rounded">Process Queue</button>
+          <button onclick="runLocalMassTest()" class="bg-green-600 text-white px-2 py-1 text-sm rounded">Mass 1000</button>
+          <button onclick="clearLocalEvents()" class="bg-red-600 text-white px-2 py-1 text-sm rounded">Clear</button>
+        </div>
+      </div>
+      <div id="localReport" class="grid md:grid-cols-4 gap-2 text-sm mb-3"></div>
+      <h3 class="font-semibold text-sm mb-1">Queue</h3>
+      <table id="localQueueTable" class="w-full text-sm border-collapse mb-4"></table>
+      <h3 class="font-semibold text-sm mb-1">Actions</h3>
+      <table id="localEventTable" class="w-full text-sm border-collapse"></table>
+    </div>
   </main>
 </div>
 
@@ -57,7 +73,7 @@
   <form id="accountForm" class="space-y-2">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input id="a-user" name="username" class="border w-full" placeholder="Username" required>
-    <input id="a-pass" name="password" type="password" class="border w-full" placeholder="Password" required>
+    <input id="a-pass" name="password" type="password" class="border w-full" placeholder="Token" required>
     <input id="a-proxy" name="proxy" class="border w-full" placeholder="Proxy">
     <input id="a-msg" name="messages_file" class="border w-full" placeholder="Messages file">
     <input id="a-group" name="group_id" type="number" class="border w-full" placeholder="Group ID" required>
@@ -73,6 +89,7 @@
     <input type="hidden" id="cmd-id">
     <select id="cmd-type" class="border">
       <option value="send_message">Send message</option>
+      <option value="follow_channel">Follow channel</option>
       <option value="status_check">Status</option>
       <option value="restart">Restart</option>
       <option value="screenshot">Screenshot</option>

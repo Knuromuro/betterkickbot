@@ -4,7 +4,6 @@ import os
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
-from threading import Timer
 from typing import Optional
 
 from flask import Flask, request
@@ -15,7 +14,7 @@ from flask_limiter.util import get_remote_address
 from flask_talisman import Talisman
 from flask_jwt_extended import JWTManager
 from flask_restx import Api
-from redis.exceptions import ConnectionError as RedisConnError
+from redis.exceptions import RedisError
 
 from shared.config import load_config
 from shared.cache import init_cache
@@ -93,7 +92,7 @@ def create_app(config: Optional[dict] = None) -> Flask:
                     logger.info("Redis connection restored")
                     socketio.emit("redis_status", {"online": True})
                 app.redis_online = True
-            except RedisConnError:
+            except RedisError:
                 if getattr(app, "redis_online", True):
                     logger.warning("Redis unavailable, deferring sync")
                     socketio.emit("redis_status", {"online": False})
@@ -104,7 +103,10 @@ def create_app(config: Optional[dict] = None) -> Flask:
                 with fb.open("a") as fh:
                     for e in events:
                         fh.write(json.dumps({"event_id": e.event_id}) + "\n")
-                Timer(10, enqueue_sync).start()
+                retry = scheduler.Timer(10, enqueue_sync)
+                if hasattr(retry, "daemon"):
+                    retry.daemon = True
+                retry.start()
 
         sched.add_job(
             enqueue_sync, "interval", minutes=1, id="sync_sender", replace_existing=True

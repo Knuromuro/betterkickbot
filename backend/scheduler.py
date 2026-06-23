@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 from threading import Thread, Timer as _Timer  # Timer re-exported for tests
 import subprocess
+import sys
+import time
 from typing import Dict, Optional
 from uuid import uuid4
 
@@ -13,6 +16,8 @@ from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import current_app, Flask
 from shared.config import load_config
+from shared.kick_tokens import token_info
+from shared.local_kick_mock import LocalKickMockAdapter
 from shared.logger import logger, notify_webhook
 from bots.instance import BotInstance
 from .models import db, Group, Account, Log, SyncEvent
@@ -49,6 +54,26 @@ running_gauge = Gauge(
 
 bots: Dict[int, BotInstance] = {}
 processes: Dict[int, subprocess.Popen] = {}
+
+
+def _bot_log_dir(app: Flask) -> Path:
+    path = Path(app.config.get("BOT_LOG_DIR", "logs"))
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _append_bot_log(app: Flask, bot_id: int, message: str) -> None:
+    line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}"
+    with (_bot_log_dir(app) / f"bot_{bot_id}.log").open("a", encoding="utf-8") as fh:
+        fh.write(line + "\n")
+
+
+def _local_mock_path(app: Flask) -> Path:
+    return Path(
+        app.config.get(
+            "LOCAL_KICK_MOCK_FILE", _bot_log_dir(app) / "local_kick_mock.json"
+        )
+    )
 
 
 def init_redis() -> None:
@@ -98,9 +123,11 @@ def run_bot_task(bot_id: int, socketio: SocketIO) -> None:
     msg = "Hello from KickBot"
     msg_path = Path(account.messages_file or "")
     if msg_path.is_file():
-        msg = msg_path.read_text().splitlines()[0]
+        lines = msg_path.read_text(errors="ignore").splitlines()
+        if lines:
+            msg = lines[0]
     cmd = [
-        "python",
+        sys.executable,
         str(Path(__file__).resolve().parent.parent / "scripts" / "run_bot.py"),
         "--channel",
         group.target,
@@ -108,12 +135,24 @@ def run_bot_task(bot_id: int, socketio: SocketIO) -> None:
         msg,
         "--interval",
         str(group.interval),
-        "--token",
-        account.password,
+        "--bot-id",
+        str(account.id),
+        "--log-dir",
+        str(_bot_log_dir(app)),
+        "--test-mode",
+        (
+            "local"
+            if token_info(account.password).kind == "cookie"
+            or app.config.get("TESTING")
+            else "auto"
+        ),
     ]
+    env = {**os.environ, "KICK_BOT_TOKEN": account.password}
+    env["KICK_BOT_ID"] = str(account.id)
+    env["LOCAL_KICK_MOCK_FILE"] = str(_local_mock_path(app))
     runs_counter.inc()
     try:
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True, env=env)
         socketio.emit("bot_stopped", {"id": bot_id})
     except Exception as exc:  # noqa: broad-except
         errors_counter.inc()
@@ -153,17 +192,41 @@ async def send_job(account_id: int, socketio: SocketIO) -> None:
         group = Group.query.get(account.group_id)
         if not group:
             return
+        message = "Hello from KickBot"
+        msg_path = Path(account.messages_file or "").expanduser()
+        if msg_path.is_file():
+            with open(msg_path) as fh:
+                line = fh.readline().strip()
+                if line:
+                    message = line
+        info = token_info(account.password)
+        if info.kind == "cookie" or app.config.get("TESTING"):
+            mode = "local_cookie_test" if info.kind == "cookie" else "local_test"
+            adapter = LocalKickMockAdapter(path=_local_mock_path(app))
+            adapter.ensure_account(str(account_id), account.username)
+            result = adapter.send_message(str(account_id), group.target, message)
+            socketio.emit("bot_started", {"id": account_id, "mode": mode})
+            _append_bot_log(
+                app,
+                account_id,
+                "stage=scheduler_simulated "
+                f"mode={mode} token_kind={info.kind} "
+                f"status={result.status} code={result.code} "
+                f"event_id={result.event_id}",
+            )
+            log = Log(account_id=account_id, message="scheduler local test")
+            db.session.add(log)
+            db.session.commit()
+            socketio.emit("bot_stopped", {"id": account_id, "mode": mode})
+            socketio.emit(
+                "status",
+                {"message": f"local test scheduler tick for {account_id}"},
+            )
+            return
         if account_id not in bots:
             bots[account_id] = BotInstance(account, group)
             bots[account_id].login()
         bot = bots[account_id]
-    message = "Hello from KickBot"
-    msg_path = Path(account.messages_file or "").expanduser()
-    if msg_path.is_file():
-        with open(msg_path) as fh:
-            line = fh.readline().strip()
-            if line:
-                message = line
     socketio.emit("bot_started", {"id": account_id})
     try:
         await bot.send_message(message)

@@ -15,7 +15,7 @@ def upgrade():
         'accounts',
         sa.Column('id', sa.Integer, primary_key=True),
         sa.Column('username', sa.String(length=120), nullable=False),
-        sa.Column('password', sa.String(length=120), nullable=False),
+        sa.Column('password', sa.Text, nullable=False),
         sa.Column('proxy', sa.String(length=200)),
         sa.Column('messages_file', sa.String(length=200)),
         sa.Column('group_id', sa.Integer, sa.ForeignKey('groups.id')),

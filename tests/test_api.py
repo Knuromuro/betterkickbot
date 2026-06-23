@@ -1,5 +1,6 @@
 import pytest
 import bcrypt
+import time
 
 from backend import create_app
 from backend.models import db
@@ -14,6 +15,9 @@ def client(tmp_path):
             "SQLALCHEMY_DATABASE_URI": f"sqlite:///{tmp_path}/test.db",
             "CACHE_TYPE": "SimpleCache",
             "ADMIN_PASSWORD_HASH": password_hash,
+            "BOT_LOG_DIR": str(tmp_path / "logs"),
+            "LOCAL_KICK_MOCK_FILE": str(tmp_path / "logs" / "local_kick_mock.jsonl"),
+            "BOT_FORCE_LOCAL_TEST": True,
         }
     )
     with app.test_client() as client:
@@ -103,9 +107,126 @@ def test_bot_start_stop(client, tmp_path):
     res = client.post(f"/dashboard/api/bots/{aid}/start")
     assert res.status_code == 200
     assert "pid" in res.get_json()
+    assert res.get_json()["mode"] == "local_test"
 
     res = client.get(f"/dashboard/api/bots/{aid}/status")
     assert res.status_code == 200
 
     res = client.post(f"/dashboard/api/bots/{aid}/stop")
     assert res.status_code == 200
+
+
+def test_cookie_token_starts_as_local_test(client):
+    gid = client.post(
+        "/dashboard/api/groups", json={"name": "g4", "target": "chan", "interval": 1}
+    ).get_json()["id"]
+    aid = client.post(
+        "/dashboard/api/accounts",
+        json={
+            "username": "cookie_user",
+            "password": "KP_UIDz-ssn=fake-session-value; cf_clearance=fake",
+            "group_id": gid,
+        },
+    ).get_json()["id"]
+
+    accounts = client.get("/dashboard/api/accounts").get_json()["items"]
+    account = next(a for a in accounts if a["id"] == aid)
+    assert account["token_kind"] == "cookie"
+    assert account["token_mode"] == "local_cookie_test"
+
+    res = client.post(f"/dashboard/api/bots/{aid}/start")
+    assert res.status_code == 200
+    assert res.get_json()["mode"] == "local_cookie_test"
+
+    lines = []
+    for _ in range(20):
+        lines = client.get(f"/dashboard/api/bots/{aid}/logs").get_json()
+        if any("stage=send_result" in line for line in lines):
+            break
+        time.sleep(0.1)
+
+    client.post(f"/dashboard/api/bots/{aid}/stop")
+
+    assert any("mode=local_cookie_test" in line for line in lines)
+    assert any("stage=send_result" in line for line in lines)
+    assert any("simulated=True" in line for line in lines)
+
+
+def test_bot_command_logs_manual_message(client):
+    gid = client.post(
+        "/dashboard/api/groups", json={"name": "g5", "target": "chan", "interval": 1}
+    ).get_json()["id"]
+    aid = client.post(
+        "/dashboard/api/accounts",
+        json={
+            "username": "cmd_user",
+            "password": "KP_UIDz-ssn=fake-session-value",
+            "group_id": gid,
+        },
+    ).get_json()["id"]
+
+    res = client.post(
+        f"/dashboard/api/bots/{aid}/command",
+        json={"cmd": "send_message", "args": {"message": "test"}},
+    )
+
+    assert res.status_code == 200
+    assert res.get_json()["status"] == "ok"
+    lines = client.get(f"/dashboard/api/bots/{aid}/logs").get_json()
+    assert any("stage=local_action" in line for line in lines)
+    events = client.get("/dashboard/api/local/events").get_json()["items"]
+    assert any(e["action"] == "send_message" and e["content"] == "test" for e in events)
+
+
+def test_bot_command_logs_follow_test(client):
+    gid = client.post(
+        "/dashboard/api/groups", json={"name": "g6", "target": "chan", "interval": 1}
+    ).get_json()["id"]
+    aid = client.post(
+        "/dashboard/api/accounts",
+        json={
+            "username": "follow_user",
+            "password": "KP_UIDz-ssn=fake-session-value",
+            "group_id": gid,
+        },
+    ).get_json()["id"]
+
+    res = client.post(
+        f"/dashboard/api/bots/{aid}/command",
+        json={"cmd": "follow_channel", "args": {}},
+    )
+
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["status"] == "ok"
+    assert body["channel"] == "chan"
+    lines = client.get(f"/dashboard/api/bots/{aid}/logs").get_json()
+    assert any("stage=local_action" in line for line in lines)
+    events = client.get("/dashboard/api/local/events").get_json()["items"]
+    assert any(
+        e["action"] == "follow_channel" and e["channel"] == "chan" for e in events
+    )
+
+
+def test_local_events_can_be_cleared(client):
+    gid = client.post(
+        "/dashboard/api/groups", json={"name": "g7", "target": "chan", "interval": 1}
+    ).get_json()["id"]
+    aid = client.post(
+        "/dashboard/api/accounts",
+        json={
+            "username": "clear_user",
+            "password": "KP_UIDz-ssn=fake-session-value",
+            "group_id": gid,
+        },
+    ).get_json()["id"]
+    client.post(
+        f"/dashboard/api/bots/{aid}/command",
+        json={"cmd": "send_message", "args": {"message": "to-clear"}},
+    )
+    assert client.get("/dashboard/api/local/events").get_json()["items"]
+
+    res = client.delete("/dashboard/api/local/events")
+
+    assert res.status_code == 200
+    assert client.get("/dashboard/api/local/events").get_json()["items"] == []
